@@ -1,0 +1,264 @@
+@import url('https://fonts.googleapis.com/css2?family=Amiri:ital,wght@0,400;0,700;1,400&family=Cairo:wght@300;400;500;600;700;800&family=Tajawal:wght@400;500;700;900&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Cairo", "Tajawal", "Inter", sans-serif;
+  --font-quran: "Amiri", serif;
+  --animate-spin-slow: spin 12s linear infinite;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #0c0a09; /* Deep stone-950 background */
+  color: #e7e5e4; /* stone-200 text */
+  direction: rtl; /* Force right-to-left as this is an Arabic app */
+  -webkit-user-select: none; /* Safari */
+  -moz-user-select: none; /* Firefox */
+  -ms-user-select: none; /* IE10+/Edge */
+  user-select: none; /* General */
+}
+
+/* Make selection highlights transparent globally to entirely disable blue highlights */
+::selection {
+  background: transparent !important;
+  color: inherit !important;
+}
+::-moz-selection {
+  background: transparent !important;
+  color: inherit !important;
+}
+
+/* Allow selection inside inputs, textareas, and research markdown texts with elegant amber highlights */
+input,
+textarea,
+[contenteditable="true"],
+.markdown-body,
+.markdown-body * {
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+  user-select: text !important;
+}
+
+input::selection,
+textarea::selection,
+[contenteditable="true"]::selection,
+.markdown-body::selection,
+.markdown-body *::selection {
+  background: rgba(245, 158, 11, 0.35) !important; /* Warm emerald/amber glow selection */
+  color: inherit !important;
+}
+input::-moz-selection,
+textarea::-moz-selection,
+[contenteditable="true"]::-moz-selection,
+.markdown-body::-moz-selection,
+.markdown-body *::-moz-selection {
+  background: rgba(245, 158, 11, 0.35) !important;
+  color: inherit !important;
+}
+
+/* Custom scrollbar for an elegant reading pane (dark stone style) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #44403c; /* stone-700 */
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #57534e; /* stone-600 */
+}
+
+/* Radial dark background for main pages/views */
+.radial-dark-bg {
+  background: radial-gradient(circle at center, #1c1917 0%, #0c0a09 100%);
+}
+
+/* Stunning Quranic reading script settings */
+.quran-text {
+  font-family: var(--font-quran);
+  text-shadow: 0.5px 0.5px 0.5px rgba(0,0,0,0.02);
+}
+
+.glow-animation {
+  animation: pulse-glow 2s infinite ease-in-out;
+}
+
+@keyframes pulse-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0px rgba(196, 154, 108, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(196, 154, 108, 0);
+  }
+}
+
+/* Accessibility & Assistive Features Classes */
+
+/* 1. Font Scale Overrides */
+.accessibility-large-text {
+  font-size: 1.15rem !important;
+}
+.accessibility-large-text .text-xs, 
+.accessibility-large-text .text-\[10px\],
+.accessibility-large-text .text-\[9px\] {
+  font-size: 0.95rem !important;
+}
+.accessibility-large-text .text-sm {
+  font-size: 1.1rem !important;
+}
+.accessibility-large-text .text-base {
+  font-size: 1.25rem !important;
+}
+.accessibility-large-text .text-lg {
+  font-size: 1.4rem !important;
+}
+.accessibility-large-text .text-xl {
+  font-size: 1.6rem !important;
+}
+.accessibility-large-text .text-2xl {
+  font-size: 1.85rem !important;
+}
+.accessibility-large-text .text-3xl,
+.accessibility-large-text .text-5xl {
+  font-size: 2.1rem !important;
+}
+
+.accessibility-extra-large-text {
+  font-size: 1.3rem !important;
+}
+.accessibility-extra-large-text .text-xs,
+.accessibility-extra-large-text .text-\[10px\],
+.accessibility-extra-large-text .text-\[9px\] {
+  font-size: 1.15rem !important;
+}
+.accessibility-extra-large-text .text-sm {
+  font-size: 1.3rem !important;
+}
+.accessibility-extra-large-text .text-base {
+  font-size: 1.5rem !important;
+}
+.accessibility-extra-large-text .text-lg {
+  font-size: 1.7rem !important;
+}
+.accessibility-extra-large-text .text-xl {
+  font-size: 1.95rem !important;
+}
+.accessibility-extra-large-text .text-2xl {
+  font-size: 2.2rem !important;
+}
+.accessibility-extra-large-text .text-3xl,
+.accessibility-extra-large-text .text-5xl {
+  font-size: 2.6rem !important;
+}
+
+/* 2. Dyslexia Spacing */
+.accessibility-dyslexia-spacing,
+.accessibility-dyslexia-spacing * {
+  letter-spacing: 0.08em !important;
+  word-spacing: 0.18em !important;
+  line-height: 1.95 !important;
+}
+
+/* 3. Accessible Arial/Sans simplified high-bold font for elderly/dyslexic eyes */
+.accessibility-simple-font,
+.accessibility-simple-font .quran-text,
+.accessibility-simple-font .font-quran,
+.accessibility-simple-font option {
+  font-family: var(--font-sans) !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.03em !important;
+}
+
+/* 4. Reduced Visual Motion & Flashing overlays */
+.accessibility-reduced-motion *,
+.accessibility-reduced-motion *::before,
+.accessibility-reduced-motion *::after {
+  animation-delay: -1ms !important;
+  animation-duration: 1ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 1ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* 5. Markdown Body Formatting Styles for AI Chatbot */
+.markdown-body {
+  font-family: var(--font-sans);
+  line-height: 1.8;
+  color: #f5f5f4; /* stone-100 */
+}
+
+.markdown-body h1, 
+.markdown-body h2, 
+.markdown-body h3 {
+  color: #f59e0b; /* amber-500 */
+  font-weight: 700;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.markdown-body h1 { font-size: 1.25rem; }
+.markdown-body h2 { font-size: 1.15rem; }
+.markdown-body h3 { font-size: 1.05rem; }
+
+.markdown-body p {
+  margin-bottom: 0.75rem;
+}
+
+.markdown-body ul {
+  list-style-type: disc;
+  padding-right: 1.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.markdown-body ol {
+  list-style-type: decimal;
+  padding-right: 1.25rem;
+  margin-bottom: 0.75rem;
+}
+
+.markdown-body li {
+  margin-bottom: 0.25rem;
+}
+
+.markdown-body blockquote {
+  border-right: 4px solid #d97706; /* amber-600 */
+  padding-right: 0.75rem;
+  margin: 0.75rem 0;
+  color: #d6d3d1; /* stone-300 */
+  font-style: italic;
+  background-color: rgba(217, 119, 6, 0.05);
+  border-radius: 4px;
+}
+
+.markdown-body code {
+  font-family: monospace;
+  background-color: #292524; /* stone-800 */
+  padding: 0.15rem 0.35rem;
+  border-radius: 0.25rem;
+  font-size: 0.9em;
+  color: #fca5a5; /* red-300 */
+}
+
+.markdown-body pre {
+  background-color: #1c1917; /* stone-900 */
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  border: 1px solid #2c2a29;
+  overflow-x: auto;
+  margin: 0.75rem 0;
+}
+
+.markdown-body strong {
+  font-weight: 800;
+  color: #fbbf24; /* amber-400 */
+}
+
+

@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://service-22577922415.europe-west2.run.app/sitemap.xml

@@ -1,0 +1,24 @@
+{
+  "name": "المصحف الإلكتروني المتكامل",
+  "short_name": "المصحف المتكامل",
+  "description": "بوابة التلاوة والتدبر والذكر بالذكاء الاصطناعي لتهدئة النفس وطمأنينة القلب",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0c0a09",
+  "theme_color": "#0c0a09",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
