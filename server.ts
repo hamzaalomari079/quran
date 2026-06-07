@@ -451,7 +451,7 @@ ${matchedAdvice}
     } else {
       // General spiritual/life advice seeker
       systemPrompt = `أنت مرشد روحي وعالم تفسير قرآني ذو حكمة عالية وأسلوب رحيم ومقنع.
-تلقى المستخدم نصائح أو أسئلة عن مواقف حياتية، أو مشاعر معينة (مثل الحزن، التوتر، الأمل، التوبة، النجاح، الصبر).
+تلقى المستخدم نصائح أو أسئلة عن مواقف حياتية، أو مشاعر معينة (مثل الحزن، التوتر، الأمل، التوبة، النجاح, الصبر).
 مهمتك الأساسية هي تقديم الاستشارات والردود المبنية بالكامل على القرآن الكريم.
 يجب عليك:
 1. ذكر آية (أو أكثر) مناسبة جداً للحالة التي يشكو منها أو يستفسر عنها المستخدم بوضوح، مع كتابة نص الآية بالرسم القرآني المناسب وتحديد اسم السورة ورقم الآية.
@@ -471,199 +471,173 @@ ${matchedAdvice}
       },
     });
 
-    const aiText = response.text || "عذرًا، لم يتمكن المساعد من توليد الاستجابة. يرجى إعادة صياغة السؤال.";
+    const aiText = response.text || "عذرًا، لم يتمكن المساعد من توليد الاستجابة. يرجى إعادة صياغة السؤال والمحاولة لاحقاً.";
     res.json({ result: aiText });
   } catch (error: any) {
-    console.error("Gemini AI error, returning beautiful fallback:", error.message);
+    console.error("Gemini AI guidance error:", error.message);
     const fallbackResponse = generateFallbackResponse();
     res.json({ result: fallbackResponse, isFallback: true });
   }
 });
 
-// 3. AI Memorization, Similar Verses (Mutashabihat) finder & Planner Tips (Gemini)
+// 3. AI Memorization, Similar Verses (Mutashabihat) finder & Planner Tips (Gemini with Smart Fallbacks)
 app.post("/api/ai/memorize", async (req, res) => {
   const { action, query, dayDetails } = req.body;
 
-  if (isGeminiApiKeyMissing()) {
-    return res.status(400).json({
-      error: "مفتاح الذكاء الاصطناعي (GEMINI_API_KEY) غير متاح حالياً. يرجى تهيئة مفتاح الذكاء الاصطناعي الخاص بك في لوحة الإعدادات (Settings > Secrets) ليعمل مساعد الحفظ بكفاءة."
-    });
-  }
+  // Helper generators for beautiful inline fallbacks
+  const generateMemorizeTipsFallback = (details: any) => {
+    const dayNum = details?.dayNumber || 1;
+    const portion = details?.assignedPortion || "الورد المخصص";
+    const preset = details?.targetPreset || "حفظ حر";
+    return `### 🌟 خطة تدبر وتثبيت مخصصة لليوم [${dayNum}]
+- **الورد المستهدف**: **${portion}**
+- **نوع برنامج الحفظ**: **${preset}**
 
-  if (!action) {
-    return res.status(400).json({ error: "Missing action parameter." });
+**💡 التوصيات والوصايا الذهبية العملية للتثبيت اليوم:**
+1. **طريقة حصن تكرار المحفوظ**: اقرأ الآية الأولى بتركيز 5 مرات مع النظر للمصحف، ثم 5 مرات غيباً عن ظهر قلب. كرر مع الآية الثانية، ثم اجمعهما وتلوهما معاً غيباً وهكذا.
+2. **الربط الحسي والمواضع اللفظية**: انتبه لنهايات الآيات وفواتح الآيات التالية؛ ارسم في مخيلتك تسلسل المعاني الإيماني والموضوعي للآيات لتنساب الكلمات في عقلك بيسر وسهولة.
+3. **التكرار في الصلاة (أثبت الطرق)**: صلِّ بوردك الجديد في ركعتي النفيّلة أو صلوات الفرض اليومية، فالقراءة في الصلاة تنقش المحفوظ في ثنايا الذاكرة مدى الحياة.
+
+*(💡 **ملاحظة:** تم توليد هذه التوصيات تلقائياً عبر **محاضر الحفظ والإرشاد المدمج** احترازياً. لتشغيل معلم الحفظ التفاعلي الذكي بالكامل، يرجى تزويد مفتاح الحساب الخاص بك \`GEMINI_API_KEY\` من إعدادات التطبيق).*`;
+  };
+
+  const generateMemorizeSimilarityFallback = (q: string) => {
+    const cleanQ = (q || "").trim();
+    return `### 🔍 مرشد المتشابهات اللفظية والتدبر البصري
+الآية أو الموضع المبحوث عنه: **"${cleanQ || "الموضع المطلوب"}"**
+
+**كيف تفرّق بين المتشابهات لتفادي اللبس أثناء التسميع؟**
+- **تحديد الفروق اللغوية الدقيقة**: يقع اللبس كثيراً في نهايات الآيات والأحرف المضافة (مثال: استخدام الواو أو الفاء مثل "وبالآخرة هم يوقنون" مقابل "وهم بالآخرة هم يوقنون" أو تقديم "عدل" على "شفاعة" وتأخيرها).
+- **وصية التفرد والمواضع الشاكلة**: 
+  1. اربط الحرف الأول من السورة بالحرف المميز في الآية (مثال: لربط موضع معين، حدد قاعدة ذهبية لنفسك تربط السورة بتركيبة الكلمة).
+  2. اكتب المواضع المتشابهة في دفتر خاص وقارن موضعها في صفحة اليمين أو الشمال لتعتاد عينك على بصمتها الجغرافية.
+  3. استمع لهذه المواضع على وجه الخصوص مرتلة بصوت قارئ متقن يركز على مخارج الحروف والوقف والابتداء.
+
+*(💡 **ملاحظة:** تم جلب الإرشادات التفسيرية العامة احترازياً لعدم تكوين مفتاح \`GEMINI_API_KEY\` تفاعلي. أضف المفتاح من الإعدادات لنواتج بحث ومطابقة فورية عميقة).*`;
+  };
+
+  if (isGeminiApiKeyMissing()) {
+    if (action === "similarity") {
+      return res.json({ result: generateMemorizeSimilarityFallback(query), isFallback: true });
+    }
+    return res.json({ result: generateMemorizeTipsFallback(dayDetails), isFallback: true });
   }
 
   try {
     if (action === "similarity") {
-      if (!query) {
-        return res.status(400).json({ error: "الرجاء إدخال الآية للبحث عن المتشابهات." });
-      }
+      const systemPrompt = `أنت عالم متمكن في علم "المتشابهات اللفظية" في القرآن الكريم (Mutashabihat).
+مهمتك هي تلقي آية أو جزء من آية، وتحديد كافة المواضع المتشابهة معها في القرآن الكريم بوضوح تام، وتوجيه الحافظ ذهنياً بكيفية التفريق اللفظي والبصري المعجز بين هذه المواضع لتلافي اللبس والنسيان أثناء الاستظهار والتلاوة.
+نسق إجابتك بلغة عربية فصحى رائعة ومحببة عبر Markdown، دون مقدمات برمجية.`;
 
-      const systemPrompt = `أنت أخصائي ومُحكّم قراءات ومتخصص في "المتشابهات اللفظية" في القرآن الكريم.
-مهمتك هي تلقي آية كريمة أو جزء منها، ثم إيجاد الآيات الأخرى في القرآن التي تتشابه معها إما بلفظ متطابق تماماً أو تشابه جزئي شديد قد يسبب التشتت أو اللبس للحافظ أثناء التسميع.
-يجب أن ترجع الإجابة حتماً بصيغة JSON حصرية بالهيكل التالي فقط:
-{
-  "originalVerse": "الآية الأصلية المدخلة أو أقرب آية صحيحة لها بالتشكيل",
-  "similarVerses": [
-    {
-      "text": "الآية المتشابهة بالرسم العثماني والتشكيل الدقيق",
-      "surahName": "اسم السورة",
-      "ayahNumber": 12,
-      "differenceDetails": "تحديد موضع الاختلاف الدقيق بالكلمات أو الحروف (مثال: إضافة 'واو'، أو تغيير كلمة 'غفور' بـ 'حميد')",
-      "connectionTip": "قاعدة ذهبية أو رابط ذهني مبتكر وميسر يساعد الحافظ على عدم الخلط بينهما نهائياً (مثال: ربط الحروف باسم السورة أو ترتيب أبجدي)"
-    }
-  ]
-}
-يرجى التأكد من أن جميع الآيات حقيقية وصحيحة تماماً وموجودة في القرآن الكريم. لا تخترع آيات أبداً!`;
-
-      const userPrompt = `ابحث وحلل متشابهات هذه الآية الكريمة وقدم الدليل العملي لضبطها: "${query}"`;
+      const userPrompt = `الآية أو الجزء المتشابه المطلوب تمييزه وشرحه: "${query}"`;
 
       const response = await ai.models.generateContent({
         model: "gemini-3.5-flash",
         contents: userPrompt,
         config: {
           systemInstruction: systemPrompt,
-          temperature: 0.2,
-          responseMimeType: "application/json"
+          temperature: 0.3,
         }
       });
+      return res.json({ result: response.text || "لم يتم العثور على تشابهات حالياً." });
+    } else {
+      // action === "tips"
+      const systemPrompt = `أنت معلم وأخصائي تحفيظ وتثبيت كتاب الله الكريم بطرق ووسائل ذكية، مستقاة من برامج وتجارب حفاظ القرآن العظماء.
+مستنداً على تفاصيل اليوم التدريبية وجدول الحفظ المرفق للمستخدم، قدم له نقاط ذكية وعميية، مهارات تفكير وربط بصري، وتوجيهات عملية تناسب ورده المحدد بالذات لتثبيت الحفظ مع نصائح معنوية ومحفزة.
+استخدم لغة قوية وبليغة وmarkdown منسق بدقة متناهية.`;
 
-      const text = response.text || "{}";
-      try {
-        const parsed = JSON.parse(text);
-        return res.json(parsed);
-      } catch (parseErr) {
-        console.error("Failed to parse similarity JSON:", text, parseErr);
-        return res.status(500).json({ error: "فشل في معالجة بيانات المتشابهات من الذكاء الاصطناعي." });
-      }
-    } else if (action === "tips") {
-      if (!dayDetails) {
-        return res.status(400).json({ error: "Missing dayDetails." });
-      }
-
-      const systemPrompt = `أنت معلم تحفيظ قرآن كريم متميز ومبسط متسلح بأحدث طرق علم النفس المعرفي والتكرار المتباعد والروابط العقلية لمساعدة الحفاظ.
-ستتلقى تفاصيل اليوم الدراسي للحفظ وتخطيط مخصص، ومهمتك هي إنشاء نصائح تدبرية وحفظية مركزة ومحببة جداً تدفع الحافظ للأمام وتسهل عليه ضبط الآيات وتكرارها.
-صيغة الرد يجب أن تكون باللغة العربية الفصحى الأنيقة والجذابة المنسقة بـ Markdown بالكامل (فقرات وبنود واضحة).
-لا تذكر أي تفاصيل برمجية. ركز على الجانب الإنساني الإيماني والمحفز الفوري.`;
-
-      const userPrompt = `تفاصيل الحفظ: ${JSON.stringify(dayDetails)}.
-ساعدني بنصائح مبتكرة وخطط تكرار لليوم وحث معنوي دافئ للثبات وضبط هذه الآيات المقررة بنجاح.`;
+      const userPrompt = `اليوم رقم: ${dayDetails?.dayNumber || 1}
+البرنامج والمدة المحددة: ${dayDetails?.targetPreset || "معدل حر"} في فترة ${dayDetails?.duration || "مفتوحة"}
+الورد الإلزامي لليوم: ${dayDetails?.assignedPortion || "الورد المحدد"}
+أي توجيه مخصص إضافي: ${dayDetails?.customPrompt || "لا يوجد"}`;
 
       const response = await ai.models.generateContent({
         model: "gemini-3.5-flash",
         contents: userPrompt,
         config: {
           systemInstruction: systemPrompt,
-          temperature: 0.6,
+          temperature: 0.5,
         }
       });
-
-      return res.json({ result: response.text || "" });
+      return res.json({ result: response.text || "واصل الحفظ والمراجعة بهمة ونشاط!" });
     }
-
-    res.status(400).json({ error: "Unknown action parameter." });
   } catch (error: any) {
-    console.error("Gemini AI Memorize error:", error.message);
-    res.status(500).json({
-      error: "حدث خطأ في نظام مرافقة الحفظ الذكي.",
-      details: error.message
-    });
+    console.error("Gemini AI Memorize action error:", error.message);
+    if (action === "similarity") {
+      return res.json({ result: generateMemorizeSimilarityFallback(query), isFallback: true });
+    }
+    return res.json({ result: generateMemorizeTipsFallback(dayDetails), isFallback: true });
   }
 });
 
-// 3.5. AI Verse Story & Asbab Al-Nuzul (Causes of Revelation) finder
+// 4. Asbab Al-Nuzul, Spiritual Context and Stories behind verses (Intelligent Companion)
 app.post("/api/ai/verse-context", async (req, res) => {
   const { surahName, surahNumber, verseNumber, verseText } = req.body;
 
-  if (!verseText || !verseNumber) {
-    return res.status(400).json({ error: "بيانات الآية ناقصة." });
-  }
+  const generateVerseContextFallback = () => {
+    return `### 📖 سبب نزول الآية (أسباب النزول)
+الآية المحددة: **سورة ${surahName || surahNumber}، آية رقم ${verseNumber || 1}**
+نص الآية: **"${verseText || "غير متوفر"}"**
 
-  const generateContextFallback = () => {
-    return `### 📖 سبب نزول وسياق الآية الكريمة (المراجع المعتمدة)
-- اسم السورة: **سورة ${surahName || "العظيم"}** (الآية رقم ${verseNumber})
-- نص الآية الشريفة: **"${verseText}"**
+**سياق الآية المباركة وتفسيرها:**
+- تقع هذه الآية الكريمة ضمن السياق التربوي والعقدي المبارك للسورة، حيث تهدف إلى ترسيخ وتثبيت أركان العبودية والتوحيد الخالص لله العلي العظيم، وتذكير المؤمنين بنعمة الاستقامة والتزام طريق الحق والمروءة والاعتدال.
+- يرشد التفسير الموثوق لعلماء التفسير أن للآية عموماً تربوياً جليلاً يحث المسلم على الامتثال لأمر الله عز وجل والصبر والتحمل والتوكل التام في كافة تفاصيل الأمور الدنيوية والروحية.
 
-**سياق المأثور وكتب نزول الآيات الحكيمة:**
-بناءً على تفاسير أئمة الحديث والسِّيَر (كالإمام أبي الحسن الواحدي في "أسباب النزول" والحافظ جلال الدين السيوطي في "لباب النقول في أسباب النزول" وتفسير الحافظ ابن كثير):
-- تشير الآيات المباركة في سياق هذه السورة الشريفة إلى تثبيت عقيدة التوحيد والأحكام العبادية الميمونة، وبناء روابط الترابط والسكينة والرحمة في النفوس والمجتمع.
-- لم يرد لتلك الآية الكريمة بعينها سبب نزول أحادي مباشر خاص واقع في الأثر لحادثة معينة، ولكن سياقها الرباني العام والتعليمي نزل تبياناً وتوجيهاً مباركاً وشافياً لقلب حبيبنا المصطفى ﷺ وأصحابه والأمة كافة لتنير دربهم وعملهم.
+### ✨ الدروس والعبر الربانية والسبل العملية
+1. **استشعار قرب الله**: المداومة على استشعار معية الله عز وجل في السر والعلن وإحسان العمل والنية.
+2. **الصلاح والالتزام**: تطبيق قيم السورة والتزام منهج الكتاب المبين لتنال السعادة والسكينة والرضوان النفسي.
 
-### ✨ الدروس والعبر المستخلصة
-1. **الامتثال والانقياد**: إبراز دلالة استجابة القلب للنص الإلهي المعجز والمواعظ الربانية العظيمة.
-2. **الاستقامة السلوكية**: دعوة المؤمن الصادق لتحقيق معاني النزول بالعمل والتحلي بجميل الإيمان والمعاملة الطيبة.
-3. **أثر التدبر**: الآية مدرسة لتقوية الحصن الحصين وتثبيت معاني الوعي بالذكر والعبادة والتقوى اليومية.
-
-*(💡 **ملاحظة:** تم تزويدك بتفاصيل الآية المباركة من **المكتبة التفسيرية والنزولية الاحتياطية المدمجة** تفادياً لوقف الاستخدام. لتشغيل المرشد الذكي المطور الشامل، يرجى تهيئة مفتاح الحساب الخاص بك \`GEMINI_API_KEY\` من قائمة الإعدادات).*`;
+*(💡 **ملاحظة:** تم توفير الهدي التفسيري العام من **موسوعة أسباب النزول وأسرار الآيات المدمجة** للموقع لعمل النظام دون عوائق. احصل على تفسير إيماني غاية في التخصيص والذكاء عبر إدراج \`GEMINI_API_KEY\` من إعدادات التطبيق).*`;
   };
 
   if (isGeminiApiKeyMissing()) {
-    const fallbackText = generateContextFallback();
-    return res.json({ result: fallbackText, isFallback: true });
+    return res.json({ result: generateVerseContextFallback(), isFallback: true });
   }
 
   try {
-    const systemPrompt = `أنت عالم متخصص في علوم القرآن بمرتبة رفيعة، وخاصة علم "أسباب النزول" والتاريخ والقصص القرآني المعتمد في أمهات ومصادر الكتب الإسلامية الموثوقة (مثل الواحدي، السيوطي، ابن كثير، الطبري).
-مهمتك هي تقديم كنز معرفي ميسر ومختصر جداً ومؤثر للقارئ حول هذه الآية المحددة.
-يرجى توفير معلومات حول الآية مقسمة بوضوح بالتنسيق التالي باستخدام Markdown:
+    const systemPrompt = `أنت مفسر قرآن قدير ومؤرخ إسلامي موثوق، تمتلك معرفة شاسعة بأسباب النزول المعتمدة ومقاصد الآيات والتفسير اللغوي والعقدي والتربوي.
+مهمتك هي تقديم كشف وافي وجاذب في بضع نقاط منسقة بجمالية وإشراق عبر Markdown حول سبب نزول الآية المباركة التي يرسلها المستخدم أو تبيان سياقها التاريخي والقصصي المباشر، وتوضيح الدروس والعبر التربوية والاجتماعية المستوحاة منها.
+اكتب باللغة العربية الفصحى البليغة فقط دون أسلوب برمجي أو تقني مطلقاً.`;
 
-### 📖 سبب النزول (أسباب نزول الآية)
-- إذا كان للآية سبب نزول مباشر خاص بها (حادثة، سؤال من الصحابة، موقف معين): اذكر القصة والسبب بدقة واختصار شديد وموثق بدون إطالة.
-- إذا لم يكن لها سبب نزول مباشر خاص: وضح ذلك بلطف، ثم اشرح في جملة أو جملتين السياق التاريخي العام لنزول هذه السورة أو الموضوع المحيط بالآية (مثال: نزلت بمكة لترسيخ العقيدة، أو بالمدينة لتنظيم التشريع).
-
-### ✨ قصة الآية الكريمة أو العبرة المرتبطة بها
-- اسرد باختصار ممتع وشيق قصة الآية أو القصة الكامنة خلفها (كقصص الأنبياء، أو مواقف الرسول ﷺ وأصحابه، أو العبر والدروس الإيمانية العميقة التي تزخر بها الآية).
-- اجعل الأسلوب منساباً، عذباً، جذاباً للقلوب يلامس الوجدان ويسهل تدبره، بأقل من 100 كلمة لتكون مريحة للقراءة السريعة.
-
-توجيهات صارمة:
-1. صِغ الرد بلغة عربية فصحى نقية، بليغة ودافئة تعزز محبة القرآن وتدبره.
-2. نسق الرد كاملاً بـ Markdown بأسلوب بليغ للغاية وجميل بصرياً.
-3. ممنوع نهائياً كتابة أي مقدمات ترحيبية أو خواتيم تقنية أو تفاصيل برمجية. ابدأ مباشرة بالعناوين المحددة.`;
-
-    const userPrompt = `الآية: "${verseText}"
-سورة: ${surahName || "غير محدد"} (رقم السورة: ${surahNumber || "غير محدد"})
-الآية رقم: ${verseNumber}`;
+    const userPrompt = `السورة: ${surahName || surahNumber} (رقمها: ${surahNumber})، الآية رقم: ${verseNumber}.
+نص الآية الكريمة: "${verseText}"`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3.5-flash",
       contents: userPrompt,
       config: {
         systemInstruction: systemPrompt,
-        temperature: 0.6,
+        temperature: 0.3,
       }
     });
-
-    const resultText = response.text || "لم نتمكن من الحصول على تفاصيل إضافية لهذه الآية الكريمة حالياً.";
-    res.json({ result: resultText });
+    res.json({ result: response.text || "تفكر وتدبر في آيات الله يورث اليقين والهدى." });
   } catch (error: any) {
-    console.error("Gemini AI Verse Context error, returning beautiful fallback:", error.message);
-    const fallbackText = generateContextFallback();
-    res.json({ result: fallbackText, isFallback: true });
+    console.error("Gemini Verse Context analysis error:", error.message);
+    res.json({ result: generateVerseContextFallback(), isFallback: true });
   }
 });
 
-// 3.6. AI story pondering and Q&A endpoint
+// 5. AI Story Pondering & Lessons extractor
 app.post("/api/ai/story-ponder", async (req, res) => {
   const { storyTitle, storyNarrative, prompt } = req.body;
 
-  if (!storyTitle || !storyNarrative) {
-    return res.status(400).json({ error: "بيانات القصة ناقصة." });
+  if (!storyTitle) {
+    return res.status(400).json({ error: "اسم القصة مفقود." });
   }
 
   const generateStoryFallback = () => {
-    return `### 🌟 تدبّر قصة: **${storyTitle}** (الهدي والمواعظ الربانية)
-- **السياق القرآني والقصصي**:
-${storyNarrative}
+    return `### 💡 سياق القصة والتدبر الإيماني (العبر والعظات)
+- عنوان القصة: **${storyTitle}**
 
-${prompt ? `- **سؤالك المخصص حول القصة**: ${prompt}` : ""}
+**تأملات تربوية وعِبَر مستوحاة:**
+- ترسم هذه القصة القرآنية العظيمة منهجاً متكاملاً للصدق والصبر واليقين بالله عز وجل في مواجهة الشدائد والابتلاءات. إن عاقبة المتقين دائماً ما تنتهي بالنصر والتمكين واليسر بعد العسر.
+- تدعو القصة القارئ إلى استشعار معية الله وتدبيره الخفي في كل شؤون حياته، والصمود بوجه المغريات أو التحديات الدنيوية وثبات المعتقد والقيم.
 
-**💡 الدروس والفوائد العظمى المستخلصة:**
-1. **عاقبة الصبر والتقوى**: تجسد القصة سنة ربانية لا تتخلف؛ وهي أن البلاء محطة صقل للنفس وتأديب للمؤمن، ليعقبها التمكين وعلو الشأن متى ما ثبت وارتضى بقضاء الله وقدره.
-2. **اللطف الإلهي الخفي**: تدور الأحداث لتثبت أن المكاره الظاهرة تستبطن رحمة خافية عن الأبصار. فخسارة مركب أو فقد ولد، بل وحتى غيابات السجين، قد تؤول إلى حماية المجتمع وحفظ الأمانات.
-3. **أثر الإحسان السلوكي**: يظل الإحسان بالعمل، والتحلي بروح العدل والمروءة، وتفويض الهموم لرب الأرباب الفتيل الأساسي لحصاد العاقبة الحميدة في الدنيا والآخرة.
+### ✨ الدروس العميقة والوصايا العملية
+1. **الصبر واليقين**: اليقين بأن الفرج آتٍ وبأن الشدة تزول، وهي أساس كل نجاح وعون رباني.
+2. **العمل الصالح**: التحلي بروح العدل والمروءة، وتفويض الهموم لرب الأرباب الفتيل الأساسي لحصاد العاقبة الحميدة في الدنيا والآخرة.
 
-*(💡 **ملاحظة:** تم تزويدك بتدبر القصة من **موسوعة القصص القرآنية والتربوية المدمجة الاحتياطية** لضمان سير القراءة دون توقف. لتشغيل باحث الذكاء الاصطناعي الشامل والتفاعلي، يرجى التكرم بتزويد مفتاح الحساب الخاص بك \`GEMINI_API_KEY\` من إعدادات التطبيق).*`;
+*(💡 **ملاحظة:** تم تزويدك بتدبر القصة من **موسوعة القصص القرآنية والتربوية المدمجة الاحتياطية** لضمان سير القراءة دون توقف. لتشغيل باحث الذكاء الاصطناعي الشامل والتفاعلي، يرجى تزويد مفتاح الحساب الخاص بك \`GEMINI_API_KEY\` من إعدادات التطبيق).*`;
   };
 
   if (isGeminiApiKeyMissing()) {
@@ -705,10 +679,7 @@ ${prompt ? `سؤال أو محاورة المستخدم حول القصة: "${pr
 
 // XML Sitemap for Search Engine Indexing (Googlebot / GSC)
 app.get("/sitemap.xml", (req, res) => {
-  const host = req.get("host") || "qurany-app.com";
-  // Detect if protocol is secure (usually is behind the proxy)
-  const protocol = req.headers["x-forwarded-proto"] || req.protocol || "https";
-  const domain = `${protocol}://${host}`;
+  const domain = "https://qurany.xyz";
 
   res.header("Content-Type", "application/xml");
   
@@ -722,7 +693,29 @@ app.get("/sitemap.xml", (req, res) => {
   xml += `    <priority>1.0</priority>\n`;
   xml += `  </url>\n`;
 
-  // 2. All 114 Surahs dynamic indexable URLs
+  // 2. All important public tabs/views on the site
+  const tabs = [
+    { name: "ai", priority: "0.9", freq: "daily" },
+    { name: "stories", priority: "0.9", freq: "daily" },
+    { name: "azkar", priority: "0.8", freq: "weekly" },
+    { name: "hisn", priority: "0.8", freq: "weekly" },
+    { name: "duas", priority: "0.8", freq: "weekly" },
+    { name: "memo", priority: "0.8", freq: "weekly" },
+    { name: "stats", priority: "0.6", freq: "weekly" },
+    { name: "bookmarks", priority: "0.5", freq: "weekly" },
+    { name: "downloads", priority: "0.5", freq: "weekly" },
+    { name: "donation", priority: "0.5", freq: "weekly" }
+  ];
+
+  for (const tab of tabs) {
+    xml += `  <url>\n`;
+    xml += `    <loc>${domain}/?tab=${tab.name}</loc>\n`;
+    xml += `    <changefreq>${tab.freq}</changefreq>\n`;
+    xml += `    <priority>${tab.priority}</priority>\n`;
+    xml += `  </url>\n`;
+  }
+
+  // 3. All 114 Surahs dynamic indexable URLs
   for (let sNum = 1; sNum <= 114; sNum++) {
     xml += `  <url>\n`;
     xml += `    <loc>${domain}/?s=${sNum}</loc>\n`;
@@ -737,15 +730,11 @@ app.get("/sitemap.xml", (req, res) => {
 
 // robots.txt to direct Google crawler with dynamic sitemap location
 app.get("/robots.txt", (req, res) => {
-  const host = req.get("host") || "qurany-app.com";
-  const protocol = req.headers["x-forwarded-proto"] || req.protocol || "https";
-  const domain = `${protocol}://${host}`;
-
   res.header("Content-Type", "text/plain");
   res.send(`User-agent: *
 Allow: /
 
-Sitemap: ${domain}/sitemap.xml
+Sitemap: https://qurany.xyz/sitemap.xml
 `);
 });
 
@@ -778,7 +767,7 @@ async function startServer() {
         const indexPath = path.join(distPath, "index.html");
         let html = fs.readFileSync(indexPath, "utf-8");
         
-        const host = req.get("host") || "qurany-app.com";
+        const host = req.get("host") || "qurany.xyz";
         const protocol = req.headers["x-forwarded-proto"] || req.protocol || "https";
         const currentUrl = `${protocol}://${host}${req.originalUrl}`;
         const baseDomain = `${protocol}://${host}`;
@@ -787,6 +776,8 @@ async function startServer() {
         const sQuery = req.query.s || req.query.surah;
         const sNum = parseInt(String(sQuery));
         
+        const tabQuery = req.query.tab;
+
         let title = "قرآني (Qurany) | المصحف الإلكتروني وتلاوة وتدبر ذكي";
         let desc = "موقع قرآني: مصحف إلكتروني شامل مخصص لقراءة وتلاوة وتدبر القرآن الكريم ببراعة وسلاسة. يحتوي على تلاوات عذبة بأصوات جليلة، تفسير وتراجم سور وآيات، محرك بحث متقدم، ومساعد ذكي تفاعلي.";
         let keywords = "قرآني, قراني, قرآن, القرآن الكريم, مصحف, المصحف الإلكتروني, تلاوات خاشعة, قراء مشاهير, تفسير القرآن, تدبر القرآن, أهداف القراءة, حفظ القرآن, ذكاء اصطناعي إسلامي, الورد اليومي, أذكار, طمأنينة, qurany, quran, holy quran";
@@ -798,6 +789,41 @@ async function startServer() {
             title = `سورة ${surah.name} مكتوبة كاملة بالرسم العثماني مع التفسير والترجمة | قرآني`;
             desc = `اقرأ وتدبر سورة ${surah.name} الكريمة كاملة بالرسم العثماني الشقيق (${surah.numberOfAyahs} آية، نزلت في ${rType})، مع تفسير الجلالين والترجمة الإنجليزية الفورية والاستماع العذب لأشهر القراء على منصة قرآني الذكية.`;
             keywords = `سورة ${surah.name}, تفسير سورة ${surah.name}, سورة ${surah.name} مكتوبة, قراءة سورة ${surah.name}, سورة ${surah.name} بالتشكيل, القرآن الكريم, تفسير الجلالين, قرآني`;
+          }
+        } else if (tabQuery) {
+          const tabStr = String(tabQuery).toLowerCase();
+          if (tabStr === "ai") {
+            title = "المساعد القرآني والتدبر الذكي بالذكاء الاصطناعي | قرآني";
+            desc = "تواصل مباشرة مع المساعد الذكي التفاعلي المتخصص بالقرآن الكريم لتفسير الآيات، الإجابة عن التساؤلات الشرعية والأخلاقية، والتدبر القرآني بأسلوب سهل ومميز.";
+            keywords = "المساعد الذكي, ذكاء اصطناعي إسلامي, قوقل جيميناي, تدبر ذكي, تفسير ذكي للقرآن, قرآني";
+          } else if (tabStr === "azkar") {
+            title = "أذكار الصباح والمساء والرقية الشرعية | قرآني";
+            desc = "حصن نفسك برياض الجنة مع أذكار الصباح، أذكار المساء، أذكار الاستيقاظ والرقية الشرعية الشاملة تلاوةً وحفظاً بقالب مريح للعين.";
+            keywords = "أذكار الصباح, أذكار المساء, الرقية الشرعية, أذكار النوم, طمأنينة, حصن نفسك, قرآني";
+          } else if (tabStr === "hisn") {
+            title = "حصن المسلم كاملاً من الأذكار والأدعية اليومية | قرآني";
+            desc = "تصفح كتاب حصن المسلم كاملاً مقسم ومصنف بحسب الاحتياج اليومي في الحياة والعبادة مع ميزات تتبع وحفظ مرنة وسهلة.";
+            keywords = "حصن المسلم, أدعية حصن المسلم, كتاب حصن المسلم, أذكار اليوم والليلة, قرآني";
+          } else if (tabStr === "duas") {
+            title = "الأدعية القرآنية والنبوية المأثورة المسموعة والمكتوبة | قرآني";
+            desc = "موسوعة شاملة من الأدعية النبوية والقرآنية المباركة، مرتبة ومتاحة بنصوص واضحة وصوت عذب لتسهيل الحفظ والدعاء.";
+            keywords = "أدعية قرآنية, أدعية نبوية, دعاء من القرآن, الأدعية المأثورة, قرآني";
+          } else if (tabStr === "memo") {
+            title = "برنامج حفظ القرآن الكريم والورد اليومي الذكي | قرآني";
+            desc = "ابدأ خطتك في حفظ كتاب الله ومتابعة وردك اليومي بسهولة وتثبيت الحفظ عبر التكرار والتنظيم الزمني الشخصي المبهر.";
+            keywords = "حفظ القرآن, الورد اليومي, الحفظ الذكي, تكرار الآيات, جدول حفظ القرآن, قرآني";
+          } else if (tabStr === "stories") {
+            title = "روائع القصص والتدبر القرآني والقصص النبوي الشريف | قرآني";
+            desc = "اقرأ وتدبر روائع القصص القرآنية وقصص الأنبياء، معبرة بذكاء ومصاغة بأسلوب جذاب وبليغ يربط الماضي بالحاضر.";
+            keywords = "قصص القرآن, قصص الأنبياء, تدبر القصص, العبر القرآنية, قرآني";
+          } else if (tabStr === "stats") {
+            title = "إحصائيات القراءة والختمات والتقارير القرآنية الشخصية | قرآني";
+            desc = "قس وقيم مستوى متابعتك وتفاعلك مع القرآن الكريم، تتبع أورادك وساعات قراءتك ومخطط الختمات الزمنية الذكي.";
+            keywords = "إحصائيات القراءة, ختم القرآن الكريم, تقرير التلاوة, الورد الذكي, قرآني";
+          } else if (tabStr === "donation") {
+            title = "صدقة جارية كبرى ودعم مشروع منصة قرآني | قرآني";
+            desc = "ساهم معنا لتكون شريكاً في الأجر والثواب بصدقة جارية وعلم ينتفع به لدعم تطوير واستمرار منصة قرآني لكل مسلم حول العالم.";
+            keywords = "صدقة جارية, دعم منصة قرآني, تبرع للمشاريع الإسلامية, قرآني";
           }
         }
 
@@ -826,6 +852,7 @@ async function startServer() {
 
         // Replace any hardcoded placeholder domains inside structured markup / schemas
         html = html.replaceAll("https://service-22577922415.europe-west2.run.app/", `${baseDomain}/`);
+        html = html.replaceAll("https://service-22577922415.europe-west2.run.app", baseDomain);
 
         res.send(html);
       } catch (err) {
