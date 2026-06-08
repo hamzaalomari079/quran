@@ -83,11 +83,11 @@ export default function AIChatBot({ prefilledVerse, onClearPrefilledVerse, onOpe
         })
       });
 
-      let data;
+      let data: any = null;
       try {
         data = await response.json();
       } catch (e) {
-        // Fallback
+        // Fallback or empty body
       }
 
       if (!response.ok) {
@@ -96,6 +96,10 @@ export default function AIChatBot({ prefilledVerse, onClearPrefilledVerse, onOpe
 
       if (data && data.error) {
         throw new Error(data.error);
+      }
+
+      if (!data || !data.result) {
+        throw new Error("عذراً، استجابة الخادم غير صالحة أو مشغولة حالياً.");
       }
 
       const aiMsg: Message = {

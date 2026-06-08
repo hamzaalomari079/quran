@@ -220,7 +220,7 @@ export default function AIMemorizationGateway({ currentLang = "ar" }: { currentL
         })
       });
 
-      let data;
+      let data: any = null;
       try {
         data = await response.json();
       } catch (e) {
@@ -233,6 +233,10 @@ export default function AIMemorizationGateway({ currentLang = "ar" }: { currentL
 
       if (data && data.error) {
         throw new Error(data.error);
+      }
+
+      if (!data || !data.originalVerse) {
+        throw new Error(isAr ? "لم نتمكن من تحليل المتشابهات حالياً، يرجى المحاولة لاحقاً." : "Could not identify similarity matches. Please try again later.");
       }
 
       setSimilarityResult(data);

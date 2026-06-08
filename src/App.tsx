@@ -596,12 +596,20 @@ export default function App() {
       console.warn("Failed to load downloaded surah list", e);
     }
 
-    // Parse URL query parameters to support search engine indexing deep links (s or surah)
+    // Parse URL query parameters to support search engine indexing deep links (s, surah, and tab/p)
     try {
       const params = new URLSearchParams(window.location.search);
       const sQuery = params.get("s") || params.get("surah");
       const vQuery = params.get("v") || params.get("verse");
+      const tabQuery = params.get("tab") || params.get("p");
       
+      if (tabQuery) {
+        const validTabs = ["index", "ai", "azkar", "bookmarks", "hisn", "stats", "donation", "memo", "stories", "downloads", "duas"];
+        if (validTabs.includes(tabQuery)) {
+          setActiveTab(tabQuery as any);
+        }
+      }
+
       if (sQuery) {
         const sNum = parseInt(sQuery);
         if (!isNaN(sNum) && sNum >= 1 && sNum <= 114) {

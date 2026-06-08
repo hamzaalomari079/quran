@@ -190,7 +190,7 @@ export default function SurahReader({
         })
       });
 
-      let data;
+      let data: any = null;
       try {
         data = await response.json();
       } catch (jsonErr) {
@@ -203,6 +203,10 @@ export default function SurahReader({
 
       if (data && data.error) {
         throw new Error(data.error);
+      }
+
+      if (!data || !data.result) {
+        throw new Error(isAr ? "عذراً، استجابة الخادم غير صالحة أو فارغة حالياً." : "Empty or invalid server response for verse detail.");
       }
 
       setVerseStory(data.result);
