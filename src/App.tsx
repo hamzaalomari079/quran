@@ -574,6 +574,57 @@ export default function App() {
     }
   };
 
+  // Synchronize React state with current URL pathname and search parameters for seamless search indexing
+  const syncStateFromUrl = () => {
+    try {
+      const pathname = window.location.pathname;
+      const params = new URLSearchParams(window.location.search);
+      
+      // Extract verse number if present (?v=255 or ?verse=255)
+      const vQuery = params.get("v") || params.get("verse");
+      let initialVerse: number | undefined = undefined;
+      if (vQuery) {
+        const vNum = parseInt(vQuery);
+        if (!isNaN(vNum) && vNum >= 1) {
+          initialVerse = vNum;
+        }
+      }
+
+      const pathParts = pathname.split("/").filter(Boolean); // e.g. ["surah", "12"] or ["azkar"]
+
+      if (pathParts[0] === "surah" && pathParts[1]) {
+        const sNum = parseInt(pathParts[1]);
+        if (!isNaN(sNum) && sNum >= 1 && sNum <= 114) {
+          const foundSurah = surahList.find(s => s.number === sNum);
+          if (foundSurah) {
+            setSelectedSurah(foundSurah);
+            setActiveTab("index");
+            if (initialVerse !== undefined) {
+              setInitialScrollToVerse(initialVerse);
+            } else {
+              setInitialScrollToVerse(undefined);
+            }
+            return;
+          }
+        }
+      } else if (pathParts[0]) {
+        const tabName = pathParts[0].toLowerCase();
+        const validTabs = ["index", "ai", "azkar", "bookmarks", "hisn", "stats", "donation", "memo", "stories", "downloads", "duas"];
+        if (validTabs.includes(tabName)) {
+          setSelectedSurah(null);
+          setActiveTab(tabName as any);
+          return;
+        }
+      }
+
+      // Default: Home Page
+      setSelectedSurah(null);
+      setActiveTab("index");
+    } catch (urlErr) {
+      console.warn("Failed to parse URL path parameters", urlErr);
+    }
+  };
+
   useEffect(() => {
     // Select random daily verse based on calendar date
     const day = new Date().getDate();
@@ -596,41 +647,88 @@ export default function App() {
       console.warn("Failed to load downloaded surah list", e);
     }
 
-    // Parse URL query parameters to support search engine indexing deep links (s, surah, and tab/p)
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const sQuery = params.get("s") || params.get("surah");
-      const vQuery = params.get("v") || params.get("verse");
-      const tabQuery = params.get("tab") || params.get("p");
+    // Perform initial URL Sync:
+    syncStateFromUrl();
+
+    const handlePopState = () => {
+      syncStateFromUrl();
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, []);
+
+  // Bi-directional state-to-URL sync controller and tab tile updater
+  useEffect(() => {
+    const pathname = window.location.pathname;
+    const params = new URLSearchParams(window.location.search);
+    const vQuery = params.get("v") || params.get("verse");
+    const vNum = vQuery ? parseInt(vQuery) : undefined;
+
+    let pageTitle = "قرآني (Qurany) | المصحف الإلكتروني وتلاوة وتدبر ذكي";
+
+    if (selectedSurah) {
+      const expectedPath = `/surah/${selectedSurah.number}`;
+      const hasCorrectVerse = initialScrollToVerse !== undefined ? vNum === initialScrollToVerse : !vQuery;
       
-      if (tabQuery) {
-        const validTabs = ["index", "ai", "azkar", "bookmarks", "hisn", "stats", "donation", "memo", "stories", "downloads", "duas"];
-        if (validTabs.includes(tabQuery)) {
-          setActiveTab(tabQuery as any);
-        }
+      if (pathname !== expectedPath || !hasCorrectVerse) {
+        const urlSuffix = initialScrollToVerse !== undefined ? `?v=${initialScrollToVerse}` : "";
+        window.history.pushState(null, "", `${expectedPath}${urlSuffix}`);
       }
 
-      if (sQuery) {
-        const sNum = parseInt(sQuery);
-        if (!isNaN(sNum) && sNum >= 1 && sNum <= 114) {
-          const foundSurah = surahList.find(s => s.number === sNum);
-          if (foundSurah) {
-            setSelectedSurah(foundSurah);
-            setActiveTab("index");
-            
-            if (vQuery) {
-              const vNum = parseInt(vQuery);
-              if (!isNaN(vNum) && vNum >= 1) {
-                setInitialScrollToVerse(vNum);
-              }
-            }
-          }
-        }
+      pageTitle = `سورة ${selectedSurah.name} مكتوبة كاملة بالرسم العثماني مع التفسير والترجمة | قرآني`;
+    } else {
+      // If no surah is selected, URL should be consistent with the activeTab
+      const expectedPath = activeTab === "index" ? "/" : `/${activeTab}`;
+      if (pathname !== expectedPath) {
+        window.history.pushState(null, "", expectedPath);
       }
-    } catch (urlErr) {
-      console.warn("Failed to parse URL query parameters for dynamic indexing", urlErr);
+
+      switch (activeTab) {
+        case "ai":
+          pageTitle = "المساعد القرآني والتدبر الذكي بالذكاء الاصطناعي | قرآني";
+          break;
+        case "azkar":
+          pageTitle = "أذكار الصباح والمساء والرقية الشرعية | قرآني";
+          break;
+        case "hisn":
+          pageTitle = "حصن المسلم كاملاً من الأذكار والأدعية اليومية | قرآني";
+          break;
+        case "bookmarks":
+          pageTitle = "الآيات المحفوظة والإشارات المرجعية | قرآني";
+          break;
+        case "duas":
+          pageTitle = "الأدعية القرآنية والنبوية المأثورة المسموعة والمكتوبة | قرآني";
+          break;
+        case "memo":
+          pageTitle = "برنامج حفظ القرآن الكريم والورد اليومي الذكي | قرآني";
+          break;
+        case "stories":
+          pageTitle = "روائع القصص والتدبر القرآني والقصص النبوي الشريف | قرآني";
+          break;
+        case "stats":
+          pageTitle = "إحصائيات القراءة والختمات والتقارير القرآنية الشخصية | قرآني";
+          break;
+        case "downloads":
+          pageTitle = "تنزيل السور والاستماع أوفلاين | قرآني";
+          break;
+        case "donation":
+          pageTitle = "صدقة جارية كبرى ودعم مشروع منصة قرآني | قرآني";
+          break;
+        default:
+          pageTitle = "قرآني (Qurany) | المصحف الإلكتروني وتلاوة وتدبر ذكي";
+      }
     }
-  }, []);
+
+    document.title = pageTitle;
+
+    // Dynamically update head canonical link on client-side for absolute SEO alignment
+    const canonicalLink = document.querySelector('link[rel="canonical"]');
+    if (canonicalLink) {
+      canonicalLink.setAttribute("href", window.location.href);
+    }
+  }, [selectedSurah, activeTab, initialScrollToVerse]);
 
   // Saved Bookmarks toggler (adding / deleting)
   const handleToggleBookmark = (verseNumber: number, verseText: string) => {

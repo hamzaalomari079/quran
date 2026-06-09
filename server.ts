@@ -13,6 +13,47 @@ const PORT = 3000;
 
 app.use(express.json());
 
+// Canonical Domain consolidator and HTTPS Enforcer for high-performance SEO indexing
+app.use((req, res, next) => {
+  const host = req.get("host") || "";
+  const isProd = host.includes("qurany.xyz");
+  const isHttp = req.headers["x-forwarded-proto"] === "http" || req.protocol === "http";
+
+  if (isProd) {
+    if (isHttp || host.startsWith("www.")) {
+      // Clean redirect to primary secure origin https://qurany.xyz
+      return res.redirect(301, `https://qurany.xyz${req.originalUrl}`);
+    }
+  }
+  next();
+});
+
+// URL Query Parameter redirects to Clean Dynamic Paths for supreme SEO rank consolidation
+app.use((req, res, next) => {
+  const sQuery = req.query.s || req.query.surah;
+  const tabQuery = req.query.tab || req.query.p;
+
+  if (sQuery) {
+    const sNum = parseInt(String(sQuery));
+    if (!isNaN(sNum) && sNum >= 1 && sNum <= 114) {
+      const vQuery = req.query.v || req.query.verse;
+      const destination = `/surah/${sNum}` + (vQuery ? `?v=${vQuery}` : "");
+      return res.redirect(301, destination);
+    }
+  }
+
+  if (tabQuery) {
+    const tabStr = String(tabQuery).toLowerCase();
+    const validTabs = ["index", "ai", "azkar", "bookmarks", "hisn", "stats", "donation", "memo", "stories", "downloads", "duas"];
+    if (validTabs.includes(tabStr)) {
+      const destination = tabStr === "index" ? "/" : `/${tabStr}`;
+      return res.redirect(301, destination);
+    }
+  }
+
+  next();
+});
+
 // Initialize Gemini SDK with User-Agent as required by system instructions
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY || "",
@@ -677,12 +718,12 @@ ${prompt ? `سؤال أو محاورة المستخدم حول القصة: "${pr
   }
 });
 
-// XML Sitemap for Search Engine Indexing (Googlebot / GSC)
-app.get("/sitemap.xml", (req, res) => {
-  const domain = "https://qurany.xyz";
+// XML Sitemap with performance cache and SEO indicators
+let cachedSitemap: string | null = null;
+const generateSitemap = (): string => {
+  if (cachedSitemap) return cachedSitemap;
 
-  res.header("Content-Type", "application/xml");
-  
+  const domain = "https://qurany.xyz";
   let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
   xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
   
@@ -693,7 +734,7 @@ app.get("/sitemap.xml", (req, res) => {
   xml += `    <priority>1.0</priority>\n`;
   xml += `  </url>\n`;
 
-  // 2. All important public tabs/views on the site
+  // 2. Public core
   const tabs = [
     { name: "ai", priority: "0.9", freq: "daily" },
     { name: "stories", priority: "0.9", freq: "daily" },
@@ -709,30 +750,55 @@ app.get("/sitemap.xml", (req, res) => {
 
   for (const tab of tabs) {
     xml += `  <url>\n`;
-    xml += `    <loc>${domain}/?tab=${tab.name}</loc>\n`;
+    xml += `    <loc>${domain}/${tab.name}</loc>\n`;
     xml += `    <changefreq>${tab.freq}</changefreq>\n`;
     xml += `    <priority>${tab.priority}</priority>\n`;
     xml += `  </url>\n`;
   }
 
-  // 3. All 114 Surahs dynamic indexable URLs
+  // 3. All 114 Surahs
   for (let sNum = 1; sNum <= 114; sNum++) {
     xml += `  <url>\n`;
-    xml += `    <loc>${domain}/?s=${sNum}</loc>\n`;
+    xml += `    <loc>${domain}/surah/${sNum}</loc>\n`;
     xml += `    <changefreq>weekly</changefreq>\n`;
     xml += `    <priority>0.8</priority>\n`;
     xml += `  </url>\n`;
   }
   
   xml += `</urlset>`;
-  res.send(xml);
+  cachedSitemap = xml;
+  return xml;
+};
+
+// XML Sitemap HTTP endpoint
+app.get("/sitemap.xml", (req, res) => {
+  const xml = generateSitemap();
+  
+  // Content Type compliance and SEO crawler headers
+  res.header("Content-Type", "application/xml; charset=utf-8");
+  res.header("X-Content-Type-Options", "nosniff");
+  res.header("Access-Control-Allow-Origin", "*");
+  
+  // Directives to ensure GSC always gets the fresh live data directly
+  res.header("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.header("Pragma", "no-cache");
+  res.header("Expires", "0");
+  
+  res.status(200).send(xml);
 });
 
-// robots.txt to direct Google crawler with dynamic sitemap location
+// Provide a backup routing in case crawler queries "/sitemap"
+app.get("/sitemap", (req, res) => {
+  res.redirect(301, "/sitemap.xml");
+});
+
+// robots.txt with absolute indexing and api route prevention
 app.get("/robots.txt", (req, res) => {
-  res.header("Content-Type", "text/plain");
+  res.header("Content-Type", "text/plain; charset=utf-8");
+  res.header("Cache-Control", "public, max-age=86400"); // Cache config for crawlers for 1 day
   res.send(`User-agent: *
 Allow: /
+Disallow: /api/
 
 Sitemap: https://qurany.xyz/sitemap.xml
 `);
@@ -772,11 +838,19 @@ async function startServer() {
         const currentUrl = `${protocol}://${host}${req.originalUrl}`;
         const baseDomain = `${protocol}://${host}`;
 
-        // Dynamic Meta Tag changes for the requested Surah (?s=X or ?surah=X)
-        const sQuery = req.query.s || req.query.surah;
-        const sNum = parseInt(String(sQuery));
-        
-        const tabQuery = req.query.tab;
+        // Parse current path instead of legacy query parameters to determine screen focus
+        let sNum = NaN;
+        let tabQuery: string | null = null;
+
+        const pathParts = req.path.split("/").filter(Boolean); // e.g. ["surah", "12"] or ["azkar"]
+        if (pathParts[0] === "surah" && pathParts[1]) {
+          sNum = parseInt(pathParts[1]);
+        } else if (pathParts[0]) {
+          const validTabs = ["index", "ai", "azkar", "bookmarks", "hisn", "stats", "donation", "memo", "stories", "downloads", "duas"];
+          if (validTabs.includes(pathParts[0].toLowerCase())) {
+            tabQuery = pathParts[0].toLowerCase();
+          }
+        }
 
         let title = "قرآني (Qurany) | المصحف الإلكتروني وتلاوة وتدبر ذكي";
         let desc = "موقع قرآني: مصحف إلكتروني شامل مخصص لقراءة وتلاوة وتدبر القرآن الكريم ببراعة وسلاسة. يحتوي على تلاوات عذبة بأصوات جليلة، تفسير وتراجم سور وآيات، محرك بحث متقدم، ومساعد ذكي تفاعلي.";
