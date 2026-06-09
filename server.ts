@@ -725,15 +725,35 @@ app.get("/sitemap.xml", (req, res) => {
   const filePath = path.join(process.cwd(), folder, "sitemap.xml");
   
   if (fs.existsSync(filePath)) {
-    res.header("Content-Type", "application/xml; charset=utf-8");
-    res.header("X-Content-Type-Options", "nosniff");
-    res.header("Access-Control-Allow-Origin", "*");
-    res.header("Cache-Control", "no-cache, no-store, must-revalidate");
-    res.header("Pragma", "no-cache");
-    res.header("Expires", "0");
-    return res.sendFile(filePath);
+    try {
+      let content = fs.readFileSync(filePath, "utf-8");
+      
+      // Strip any byte-order mark (BOM) if present
+      if (content.charCodeAt(0) === 0xFEFF) {
+        content = content.slice(1);
+      }
+      
+      // Trim leading and trailing whitespace to ensure first line starts exactly with the xml declaration
+      content = content.trim();
+      
+      // Log the first 200 characters of sitemap response to verify it starts exactly with xml declaration
+      console.log("=== SITEMAP XML RESPONDING START (FIRST 200 CHARS) ===");
+      console.log(content.substring(0, 200));
+      console.log("======================================================");
+
+      res.header("Content-Type", "application/xml; charset=utf-8");
+      res.header("X-Content-Type-Options", "nosniff");
+      res.header("Access-Control-Allow-Origin", "*");
+      res.header("Cache-Control", "no-cache, no-store, must-revalidate");
+      res.header("Pragma", "no-cache");
+      res.header("Expires", "0");
+      return res.status(200).send(content);
+    } catch (err: any) {
+      console.error("Error reading sitemap file:", err);
+      return res.status(500).send("Internal server error");
+    }
   }
-  res.status(404).send("Sitemap not found");
+  res.status(404).header("Content-Type", "text/plain").send("Sitemap not found");
 });
 
 // Provide a backup routing in case crawler queries "/sitemap"
@@ -747,11 +767,24 @@ app.get("/robots.txt", (req, res) => {
   const filePath = path.join(process.cwd(), folder, "robots.txt");
 
   if (fs.existsSync(filePath)) {
-    res.header("Content-Type", "text/plain; charset=utf-8");
-    res.header("Cache-Control", "public, max-age=86400"); // Cache config for crawlers for 1 day
-    return res.sendFile(filePath);
+    try {
+      let content = fs.readFileSync(filePath, "utf-8");
+      
+      // Strip any byte-order mark (BOM) if present
+      if (content.charCodeAt(0) === 0xFEFF) {
+        content = content.slice(1);
+      }
+      content = content.trim();
+
+      res.header("Content-Type", "text/plain; charset=utf-8");
+      res.header("Cache-Control", "public, max-age=86400"); // Cache config for crawlers for 1 day
+      return res.status(200).send(content);
+    } catch (err: any) {
+      console.error("Error reading robots.txt file:", err);
+      return res.status(500).send("Internal server error");
+    }
   }
-  res.status(404).send("Robots.txt not found");
+  res.status(404).header("Content-Type", "text/plain").send("Robots.txt not found");
 });
 
 // Setup Vite Dev Server / Static Assets
