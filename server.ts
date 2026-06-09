@@ -718,73 +718,21 @@ ${prompt ? `سؤال أو محاورة المستخدم حول القصة: "${pr
   }
 });
 
-// XML Sitemap with performance cache and SEO indicators
-let cachedSitemap: string | null = null;
-const generateSitemap = (): string => {
-  if (cachedSitemap) return cachedSitemap;
-
-  const domain = "https://qurany.xyz";
-  let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
-  xml += `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
-  
-  // 1. Homepage URL
-  xml += `  <url>\n`;
-  xml += `    <loc>${domain}/</loc>\n`;
-  xml += `    <changefreq>daily</changefreq>\n`;
-  xml += `    <priority>1.0</priority>\n`;
-  xml += `  </url>\n`;
-
-  // 2. Public core
-  const tabs = [
-    { name: "ai", priority: "0.9", freq: "daily" },
-    { name: "stories", priority: "0.9", freq: "daily" },
-    { name: "azkar", priority: "0.8", freq: "weekly" },
-    { name: "hisn", priority: "0.8", freq: "weekly" },
-    { name: "duas", priority: "0.8", freq: "weekly" },
-    { name: "memo", priority: "0.8", freq: "weekly" },
-    { name: "stats", priority: "0.6", freq: "weekly" },
-    { name: "bookmarks", priority: "0.5", freq: "weekly" },
-    { name: "downloads", priority: "0.5", freq: "weekly" },
-    { name: "donation", priority: "0.5", freq: "weekly" }
-  ];
-
-  for (const tab of tabs) {
-    xml += `  <url>\n`;
-    xml += `    <loc>${domain}/${tab.name}</loc>\n`;
-    xml += `    <changefreq>${tab.freq}</changefreq>\n`;
-    xml += `    <priority>${tab.priority}</priority>\n`;
-    xml += `  </url>\n`;
-  }
-
-  // 3. All 114 Surahs
-  for (let sNum = 1; sNum <= 114; sNum++) {
-    xml += `  <url>\n`;
-    xml += `    <loc>${domain}/surah/${sNum}</loc>\n`;
-    xml += `    <changefreq>weekly</changefreq>\n`;
-    xml += `    <priority>0.8</priority>\n`;
-    xml += `  </url>\n`;
-  }
-  
-  xml += `</urlset>`;
-  cachedSitemap = xml;
-  return xml;
-};
-
-// XML Sitemap HTTP endpoint
+// XML Sitemap HTTP endpoint serving the static file from the public/dist directory
 app.get("/sitemap.xml", (req, res) => {
-  const xml = generateSitemap();
+  const folder = process.env.NODE_ENV === "production" ? "dist" : "public";
+  const filePath = path.join(process.cwd(), folder, "sitemap.xml");
   
-  // Content Type compliance and SEO crawler headers
-  res.header("Content-Type", "application/xml; charset=utf-8");
-  res.header("X-Content-Type-Options", "nosniff");
-  res.header("Access-Control-Allow-Origin", "*");
-  
-  // Directives to ensure GSC always gets the fresh live data directly
-  res.header("Cache-Control", "no-cache, no-store, must-revalidate");
-  res.header("Pragma", "no-cache");
-  res.header("Expires", "0");
-  
-  res.status(200).send(xml);
+  if (fs.existsSync(filePath)) {
+    res.header("Content-Type", "application/xml; charset=utf-8");
+    res.header("X-Content-Type-Options", "nosniff");
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Cache-Control", "no-cache, no-store, must-revalidate");
+    res.header("Pragma", "no-cache");
+    res.header("Expires", "0");
+    return res.sendFile(filePath);
+  }
+  res.status(404).send("Sitemap not found");
 });
 
 // Provide a backup routing in case crawler queries "/sitemap"
@@ -792,16 +740,17 @@ app.get("/sitemap", (req, res) => {
   res.redirect(301, "/sitemap.xml");
 });
 
-// robots.txt with absolute indexing and api route prevention
+// robots.txt with absolute indexing and api route prevention serving the static file
 app.get("/robots.txt", (req, res) => {
-  res.header("Content-Type", "text/plain; charset=utf-8");
-  res.header("Cache-Control", "public, max-age=86400"); // Cache config for crawlers for 1 day
-  res.send(`User-agent: *
-Allow: /
-Disallow: /api/
+  const folder = process.env.NODE_ENV === "production" ? "dist" : "public";
+  const filePath = path.join(process.cwd(), folder, "robots.txt");
 
-Sitemap: https://qurany.xyz/sitemap.xml
-`);
+  if (fs.existsSync(filePath)) {
+    res.header("Content-Type", "text/plain; charset=utf-8");
+    res.header("Cache-Control", "public, max-age=86400"); // Cache config for crawlers for 1 day
+    return res.sendFile(filePath);
+  }
+  res.status(404).send("Robots.txt not found");
 });
 
 // Setup Vite Dev Server / Static Assets
