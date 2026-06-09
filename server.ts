@@ -9,6 +9,7 @@ import { surahList } from "./src/data/surahData";
 dotenv.config();
 
 const app = express();
+app.enable("trust proxy");
 const PORT = 3000;
 
 app.use(express.json());
