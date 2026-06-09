@@ -667,6 +667,7 @@ export default function App() {
     const vNum = vQuery ? parseInt(vQuery) : undefined;
 
     let pageTitle = "قرآني (Qurany) | المصحف الإلكتروني وتلاوة وتدبر ذكي";
+    let pageDesc = "موقع قرآني: مصحف إلكتروني شامل مخصص لقراءة وتلاوة وتدبر القرآن الكريم ببراعة وسلاسة. يحتوي على تلاوات عذبة بأصوات جليلة، تفسير وتراجم سور وآيات، محرك بحث متقدم، ومساعد ذكي تفاعلي.";
 
     if (selectedSurah) {
       const expectedPath = `/surah/${selectedSurah.number}`;
@@ -678,6 +679,8 @@ export default function App() {
       }
 
       pageTitle = `سورة ${selectedSurah.name} مكتوبة كاملة بالرسم العثماني مع التفسير والترجمة | قرآني`;
+      const rType = selectedSurah.revelationType === "Meccan" || selectedSurah.arabicType === "مكية" ? "مكية" : "مدنية";
+      pageDesc = `اقرأ وتدبر سورة ${selectedSurah.name} الكريمة كاملة بالرسم العثماني الشقيق (${selectedSurah.numberOfAyahs} آية، نزلت في ${rType})، مع تفسير الجلالين والترجمة الإنجليزية الفورية والاستماع العذب لأشهر القراء على منصة قرآني الذكية.`;
     } else {
       // If no surah is selected, URL should be consistent with the activeTab
       const expectedPath = activeTab === "index" ? "/" : `/${activeTab}`;
@@ -688,40 +691,56 @@ export default function App() {
       switch (activeTab) {
         case "ai":
           pageTitle = "المساعد القرآني والتدبر الذكي بالذكاء الاصطناعي | قرآني";
+          pageDesc = "تواصل مباشرة مع المساعد الذكي التفاعلي المتخصص بالقرآن الكريم لتفسير الآيات، الإجابة عن التساؤلات الشرعية والأخلاقية، والتدبر القرآني بأسلوب سهل ومميز.";
           break;
         case "azkar":
           pageTitle = "أذكار الصباح والمساء والرقية الشرعية | قرآني";
+          pageDesc = "حصن نفسك برياض الجنة مع أذكار الصباح، أذكار المساء، أذكار الاستيقاظ والرقية الشرعية الشاملة تلاوةً وحفظاً بقالب مريح للعين.";
           break;
         case "hisn":
           pageTitle = "حصن المسلم كاملاً من الأذكار والأدعية اليومية | قرآني";
+          pageDesc = "تصفح كتاب حصن المسلم كاملاً مقسم ومصنف بحسب الاحتياج اليومي في الحياة والعبادة مع ميزات تتبع وحفظ مرنة وسهلة.";
           break;
         case "bookmarks":
           pageTitle = "الآيات المحفوظة والإشارات المرجعية | قرآني";
+          pageDesc = "الآيات والتحفظات الكريمة التي قمت بحفظها لسهولة المراجعة والتدبر لاحقاً على منصة قرآني.";
           break;
         case "duas":
           pageTitle = "الأدعية القرآنية والنبوية المأثورة المسموعة والمكتوبة | قرآني";
+          pageDesc = "موسوعة شاملة من الأدعية النبوية والقرآنية المباركة، مرتبة ومتاحة بنصوص واضحة وصوت عذب لتسهيل الحفظ والدعاء.";
           break;
         case "memo":
           pageTitle = "برنامج حفظ القرآن الكريم والورد اليومي الذكي | قرآني";
+          pageDesc = "ابدأ خطتك في حفظ كتاب الله ومتابعة وردك اليومي بسهولة وتثبيت الحفظ عبر التكرار والتنظيم الزمني الشخصي المبهر.";
           break;
         case "stories":
           pageTitle = "روائع القصص والتدبر القرآني والقصص النبوي الشريف | قرآني";
+          pageDesc = "اقرأ وتدبر روائع القصص القرآنية وقصص الأنبياء، معبرة بذكاء ومصاغة بأسلوب جذاب وبليغ يربط الماضي بالحاضر.";
           break;
         case "stats":
           pageTitle = "إحصائيات القراءة والختمات والتقارير القرآنية الشخصية | قرآني";
+          pageDesc = "قس وقيم مستوى متابعتك وتفاعلك مع القرآن الكريم، تتبع أورادك وساعات قراءتك ومخطط الختمات الزمنية الذكي.";
           break;
         case "downloads":
           pageTitle = "تنزيل السور والاستماع أوفلاين | قرآني";
+          pageDesc = "تنزيل السور واستماع مباشر دون اتصال بالإنترنت، وحفظ الملفات الصوتية للأوفلاين.";
           break;
         case "donation":
           pageTitle = "صدقة جارية كبرى ودعم مشروع منصة قرآني | قرآني";
+          pageDesc = "ساهم معنا لتكون شريكاً في الأجر والثواب بصدقة جارية وعلم ينتفع به لدعم تطوير واستمرار منصة قرآني لكل مسلم حول العالم.";
           break;
         default:
           pageTitle = "قرآني (Qurany) | المصحف الإلكتروني وتلاوة وتدبر ذكي";
+          pageDesc = "موقع قرآني: مصحف إلكتروني شامل مخصص لقراءة وتلاوة وتدبر القرآن الكريم ببراعة وسلاسة. يحتوي على تلاوات عذبة بأصوات جليلة، تفسير وتراجم سور وآيات، محرك بحث متقدم، ومساعد ذكي تفاعلي.";
       }
     }
 
     document.title = pageTitle;
+
+    const metaDescription = document.querySelector('meta[name="description"]');
+    if (metaDescription) {
+      metaDescription.setAttribute("content", pageDesc);
+    }
 
     // Dynamically update head canonical link on client-side for absolute SEO alignment
     const canonicalLink = document.querySelector('link[rel="canonical"]');
