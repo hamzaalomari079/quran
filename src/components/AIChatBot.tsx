@@ -110,7 +110,11 @@ export default function AIChatBot({ prefilledVerse, onClearPrefilledVerse, onOpe
 
       setMessages(prev => [...prev, aiMsg]);
     } catch (err: any) {
-      setError(err.message || "حدث خطأ أثناء توليد الشرح والتفسير.");
+      let errorMsg = err.message || "حدث خطأ أثناء توليد الشرح والتفسير.";
+      if (errorMsg === "Failed to fetch") {
+        errorMsg = "⚠️ فشل الاتصال بخادم الذكاء الاصطناعي (Failed to fetch). يرجى التأكد من استقرار شبكة الإنترنت لديك أو إعادة المحاولة بعد دقيقة.";
+      }
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }

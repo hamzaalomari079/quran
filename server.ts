@@ -55,6 +55,71 @@ app.use((req, res, next) => {
   next();
 });
 
+// Explicit SEO route for sitemap.xml to guarantee precise content-type, encoding, headers, and prevent BOM or HTML prefixing
+app.get("/sitemap.xml", (req, res) => {
+  try {
+    const publicPath = path.join(process.cwd(), "public", "sitemap.xml");
+    const distPath = path.join(process.cwd(), "dist", "sitemap.xml");
+    
+    // Check in dist first (production built), then fallback to public
+    let filePath = distPath;
+    if (!fs.existsSync(filePath)) {
+      filePath = publicPath;
+    }
+    
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).send("Sitemap not found");
+    }
+    
+    let content = fs.readFileSync(filePath, "utf-8");
+    
+    // Prevent BOM UTF-8 issues by stripping BOM character if present
+    content = content.replace(/^\uFEFF/, "");
+    
+    // Prevent any HTML prefixing by ensuring it starts with the XML declaration
+    content = content.trim();
+    
+    // Set explicit professional HTTP Headers for search console compliance
+    res.header("Content-Type", "application/xml; charset=utf-8");
+    res.header("X-Robots-Tag", "index, follow");
+    res.header("Cache-Control", "public, max-age=0, must-revalidate");
+    
+    return res.status(200).send(content);
+  } catch (err: any) {
+    console.error("Error serving sitemap.xml:", err);
+    return res.status(500).send("Error generating sitemap.xml");
+  }
+});
+
+// Explicit SEO route for robots.txt to consolidate crawler instruction delivery
+app.get("/robots.txt", (req, res) => {
+  try {
+    const publicPath = path.join(process.cwd(), "public", "robots.txt");
+    const distPath = path.join(process.cwd(), "dist", "robots.txt");
+    
+    let filePath = distPath;
+    if (!fs.existsSync(filePath)) {
+      filePath = publicPath;
+    }
+    
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).send("Robots.txt not found");
+    }
+    
+    let content = fs.readFileSync(filePath, "utf-8");
+    content = content.replace(/^\uFEFF/, "").trim();
+    
+    res.header("Content-Type", "text/plain; charset=utf-8");
+    res.header("X-Robots-Tag", "index, follow");
+    res.header("Cache-Control", "public, max-age=0, must-revalidate");
+    
+    return res.status(200).send(content);
+  } catch (err: any) {
+    console.error("Error serving robots.txt:", err);
+    return res.status(500).send("Error serving robots.txt");
+  }
+});
+
 // Initialize Gemini SDK with User-Agent as required by system instructions
 const ai = new GoogleGenAI({
   apiKey: process.env.GEMINI_API_KEY || "",
@@ -93,6 +158,35 @@ const fetchWithTimeout = (url: string, timeout = 750) => {
   });
 };
 
+// Ensure server-side disk caching folder exists for supreme API reliability
+const CACHE_DIR = path.join(process.cwd(), "cache_surahs");
+if (!fs.existsSync(CACHE_DIR)) {
+  fs.mkdirSync(CACHE_DIR, { recursive: true });
+}
+
+// Helper to delay execution (used for retry backoff)
+const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
+
+// Helper to fetch with retry logic
+const fetchWithRetry = async (url: string, retries = 3, backoff = 300): Promise<Response> => {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const response = await fetch(url);
+      if (response.ok) {
+        return response;
+      }
+      console.warn(`Fetch attempt ${i + 1} failed with status: ${response.status}. Retrying in ${backoff}ms...`);
+    } catch (err: any) {
+      console.warn(`Fetch attempt ${i + 1} encountered network error: ${err.message}. Retrying in ${backoff}ms...`);
+    }
+    if (i < retries - 1) {
+      await delay(backoff);
+      backoff *= 2; // exponential backoff
+    }
+  }
+  throw new Error(`Failed to fetch after ${retries} attempts.`);
+};
+
 // 1. Fetch Surah detail with translation & Arabic Tafsir al-Jalalayn
 app.get("/api/surah/:number", async (req, res) => {
   const surahNumber = parseInt(req.params.number);
@@ -100,18 +194,31 @@ app.get("/api/surah/:number", async (req, res) => {
     return res.status(400).json({ error: "Invalid surah number. Must be between 1 and 114." });
   }
 
+  const cachePath = path.join(CACHE_DIR, `surah_${surahNumber}.json`);
+
+  // A. Check if Surah data exists in the high-speed local filesystem cache
+  if (fs.existsSync(cachePath)) {
+    try {
+      const cachedDataStr = fs.readFileSync(cachePath, "utf-8");
+      const cachedData = JSON.parse(cachedDataStr);
+      if (cachedData && cachedData.verses && cachedData.verses.length > 0) {
+        res.header("X-Cache", "HIT");
+        return res.json(cachedData);
+      }
+    } catch (cacheReadErr: any) {
+      console.error(`Local cache file read glitch (Surah ${surahNumber}):`, cacheReadErr.message);
+    }
+  }
+
+  // B. Not in cache: fetch it from public cloud API with resilient retry and timeout parameters
   try {
-    // We request 3 editions: quran-uthmani (Arabic text), en.sahih (English translation), and ar.jalalayn (Arabic Tafsir)
     const apiUrl = `https://api.alquran.cloud/v1/surah/${surahNumber}/editions/quran-uthmani,en.sahih,ar.jalalayn`;
     
-    const response = await fetch(apiUrl);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch from Quran API: ${response.statusText}`);
-    }
-
+    const response = await fetchWithRetry(apiUrl, 3, 400);
     const json = await response.json();
+    
     if (json.code !== 200 || !json.data || json.data.length < 3) {
-      throw new Error("Invalid or incomplete data from Quran API.");
+      throw new Error("Invalid or incomplete data structure returned from Quran API.");
     }
 
     const uthmaniData = json.data[0];
@@ -131,7 +238,7 @@ app.get("/api/surah/:number", async (req, res) => {
       };
     });
 
-    res.json({
+    const combinedResult = {
       number: uthmaniData.number,
       name: uthmaniData.name,
       englishName: uthmaniData.englishName,
@@ -139,9 +246,19 @@ app.get("/api/surah/:number", async (req, res) => {
       numberOfAyahs: uthmaniData.numberOfAyahs,
       revelationType: uthmaniData.revelationType,
       verses: verses
-    });
+    };
+
+    // C. Save it on local disk cache persistently
+    try {
+      fs.writeFileSync(cachePath, JSON.stringify(combinedResult, null, 2), "utf-8");
+    } catch (cacheWriteErr: any) {
+      console.error(`Failed to save Surah ${surahNumber} to local cache files:`, cacheWriteErr.message);
+    }
+
+    res.header("X-Cache", "MISS");
+    res.json(combinedResult);
   } catch (error: any) {
-    console.error("Error fetching surah:", error.message);
+    console.error(`Total exhaustion error fetching surah ${surahNumber}:`, error.message);
     res.status(500).json({
       error: "حدث خطأ أثناء تحميل السورة من الخادم. يرجى التحقق من اتصال الإنترنت والمحاولة لاحقاً.",
       details: error.message
@@ -721,10 +838,21 @@ ${prompt ? `سؤال أو محاورة المستخدم حول القصة: "${pr
 
 // XML Sitemap HTTP endpoint serving the static file from the public/dist directory
 app.get("/sitemap.xml", (req, res) => {
-  const folder = process.env.NODE_ENV === "production" ? "dist" : "public";
-  const filePath = path.join(process.cwd(), folder, "sitemap.xml");
+  const pathsToTry = [
+    path.join(process.cwd(), "dist", "sitemap.xml"),
+    path.join(process.cwd(), "public", "sitemap.xml"),
+    path.join(process.cwd(), "sitemap.xml")
+  ];
   
-  if (fs.existsSync(filePath)) {
+  let filePath = "";
+  for (const p of pathsToTry) {
+    if (fs.existsSync(p)) {
+      filePath = p;
+      break;
+    }
+  }
+  
+  if (filePath) {
     try {
       let content = fs.readFileSync(filePath, "utf-8");
       
@@ -736,6 +864,10 @@ app.get("/sitemap.xml", (req, res) => {
       // Trim leading and trailing whitespace to ensure first line starts exactly with the xml declaration
       content = content.trim();
       
+      // Keep static URLs absolutely matched to the primary domain: https://qurany.xyz
+      // By replacing any other hostname inside <loc> matches
+      content = content.replace(/<loc>https?:\/\/[^\/]+/g, "<loc>https://qurany.xyz");
+
       // Log the first 200 characters of sitemap response to verify it starts exactly with xml declaration
       console.log("=== SITEMAP XML RESPONDING START (FIRST 200 CHARS) ===");
       console.log(content.substring(0, 200));
@@ -743,10 +875,13 @@ app.get("/sitemap.xml", (req, res) => {
 
       res.header("Content-Type", "application/xml; charset=utf-8");
       res.header("X-Content-Type-Options", "nosniff");
+      res.header("X-Robots-Tag", "index, follow");
       res.header("Access-Control-Allow-Origin", "*");
       res.header("Cache-Control", "no-cache, no-store, must-revalidate");
       res.header("Pragma", "no-cache");
       res.header("Expires", "0");
+      res.header("Content-Length", String(Buffer.byteLength(content, "utf-8")));
+      
       return res.status(200).send(content);
     } catch (err: any) {
       console.error("Error reading sitemap file:", err);
@@ -763,10 +898,21 @@ app.get("/sitemap", (req, res) => {
 
 // robots.txt with absolute indexing and api route prevention serving the static file
 app.get("/robots.txt", (req, res) => {
-  const folder = process.env.NODE_ENV === "production" ? "dist" : "public";
-  const filePath = path.join(process.cwd(), folder, "robots.txt");
+  const pathsToTry = [
+    path.join(process.cwd(), "dist", "robots.txt"),
+    path.join(process.cwd(), "public", "robots.txt"),
+    path.join(process.cwd(), "robots.txt")
+  ];
 
-  if (fs.existsSync(filePath)) {
+  let filePath = "";
+  for (const p of pathsToTry) {
+    if (fs.existsSync(p)) {
+      filePath = p;
+      break;
+    }
+  }
+
+  if (filePath) {
     try {
       let content = fs.readFileSync(filePath, "utf-8");
       
@@ -776,8 +922,19 @@ app.get("/robots.txt", (req, res) => {
       }
       content = content.trim();
 
+      // Ensure that robots.txt sitemap reference points to the absolute canonical domain
+      content = content.replace(/Sitemap:\s*https?:\/\/[^\/]+/gi, "Sitemap: https://qurany.xyz");
+
+      // Log the first 200 characters of robots.txt response
+      console.log("=== ROBOTS.TXT RESPONDING START (FIRST 200 CHARS) ===");
+      console.log(content.substring(0, 200));
+      console.log("=====================================================");
+
       res.header("Content-Type", "text/plain; charset=utf-8");
+      res.header("X-Robots-Tag", "index, follow");
       res.header("Cache-Control", "public, max-age=86400"); // Cache config for crawlers for 1 day
+      res.header("Content-Length", String(Buffer.byteLength(content, "utf-8")));
+      
       return res.status(200).send(content);
     } catch (err: any) {
       console.error("Error reading robots.txt file:", err);
