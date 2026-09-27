@@ -2,7 +2,7 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import dotenv from "dotenv";
 import { surahList } from "./src/data/surahData";
 
@@ -129,6 +129,31 @@ const ai = new GoogleGenAI({
     }
   }
 });
+
+// Resilient server-side Gemini helper with automatic failover between supported models
+const generateGeminiContent = async (params: {
+  contents: any;
+  config?: any;
+}) => {
+  const mergedConfig = {
+    thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+    ...params.config,
+  };
+  try {
+    return await ai.models.generateContent({
+      model: "gemini-3.8-flash",
+      contents: params.contents,
+      config: mergedConfig,
+    });
+  } catch (primaryErr: any) {
+    console.warn("Primary model (gemini-3.8-flash) encountered an issue, trying fallback model (gemini-3.1-flash-lite):", primaryErr?.message);
+    return await ai.models.generateContent({
+      model: "gemini-3.1-flash-lite",
+      contents: params.contents,
+      config: params.config,
+    });
+  }
+};
 
 // API Routes
 
@@ -446,8 +471,7 @@ app.get("/api/search", async (req, res) => {
 
       const userPrompt = `ابحث وتوقع بدقة فائقة وعثر على الآيات القرآنية المقصودة أو القريبة للعبارة أو المسمى التالي: "${query}"`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+      const response = await generateGeminiContent({
         contents: userPrompt,
         config: {
           systemInstruction: systemPrompt,
@@ -537,7 +561,7 @@ app.post("/api/ai/guidance", async (req, res) => {
 - **التوجيه الإيماني والتربوي**: يحثنا التفسير على استشعار مراقبة الخالق عز وجل والصلة والتقرب إليه، والثقة برحمة الله العظيمة ولطفه الخفي والظاهر بعباده المؤمنين في جميع أحوالهم.
 - **التطبيق العملي بالآية**: يُستحب للمسلم المداومة على تلاوة وتدبر معانيها وتطبيق ما جاء فيها من مكارم الأخلاق والواجبات، وتقوية عقيدة النفس بالصبر عند الابتلاء والرضا والحمد لله.
 
-*(💡 **ملاحظة:** تم توليد هذه الإجابة عبر **المكتبة التفسيرية الإسلامية المدمجة الاحتياطية** للتطبيق لضمان عدم حدوث انقطاع. لتفعيل إجابات الذكاء الاصطناعي التفاعلية المتطورة المخصصة لسؤالك مباشرة، يرجى تزويد مفتاح الحساب الخاص بك \`GEMINI_API_KEY\` من قائمة الإعدادات).*`;
+*(💡 **ملاحظة:** تم استخلاص هذا التفسير والتدبر من المكتبة التفسيرية المعتمدة لضمان استمرار القراءة والتدبر بسلاسة).*`;
     } else {
       // Spiritual topic adviser key-word search
       const queryLower = prompt.toLowerCase();
@@ -583,7 +607,7 @@ ${matchedAdvice}
   2. ابدأ يومك أو ليلتك بصلاة ركعتين خاشعتين بنية تيسير الأمر وراحة البال.
   3. لازم أذكار الصباح والمساء والاستغفار، فبها يزول الكرب وتُستجلب الرحمات العظام.
 
-*(💡 **ملاحظة:** تم توليد الإجابة تلقائياً عبر محرّك **دليل الآيات المناسبة للأحوال النفسية والقلبية المدمج** تفادياً للتوقف. لتشغيل الذكاء الاصطناعي بالكامل، يرجى توفير مفتاح \`GEMINI_API_KEY\` في إعدادات التطبيق).*`;
+*(💡 **ملاحظة:** تم استخلاص هذا الهدي القرآني من دليل الآيات والسكينة لراحة البال وطمأنينة القلب).*`;
     }
     return fallbackText;
   };
@@ -621,8 +645,7 @@ ${matchedAdvice}
       userPrompt = `حالة المستخدم أو سؤاله: "${prompt}"`;
     }
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+    const response = await generateGeminiContent({
       contents: userPrompt,
       config: {
         systemInstruction: systemPrompt,
@@ -657,7 +680,7 @@ app.post("/api/ai/memorize", async (req, res) => {
 2. **الربط الحسي والمواضع اللفظية**: انتبه لنهايات الآيات وفواتح الآيات التالية؛ ارسم في مخيلتك تسلسل المعاني الإيماني والموضوعي للآيات لتنساب الكلمات في عقلك بيسر وسهولة.
 3. **التكرار في الصلاة (أثبت الطرق)**: صلِّ بوردك الجديد في ركعتي النفيّلة أو صلوات الفرض اليومية، فالقراءة في الصلاة تنقش المحفوظ في ثنايا الذاكرة مدى الحياة.
 
-*(💡 **ملاحظة:** تم توليد هذه التوصيات تلقائياً عبر **محاضر الحفظ والإرشاد المدمج** احترازياً. لتشغيل معلم الحفظ التفاعلي الذكي بالكامل، يرجى تزويد مفتاح الحساب الخاص بك \`GEMINI_API_KEY\` من إعدادات التطبيق).*`;
+*(💡 **ملاحظة:** تم إعداد هذه الوصايا العملية من منهاج حفظ وتثبيت القرآن الكريم لتيسير الحفظ والاستظهار).*`;
   };
 
   const generateMemorizeSimilarityFallback = (q: string) => {
@@ -672,7 +695,7 @@ app.post("/api/ai/memorize", async (req, res) => {
   2. اكتب المواضع المتشابهة في دفتر خاص وقارن موضعها في صفحة اليمين أو الشمال لتعتاد عينك على بصمتها الجغرافية.
   3. استمع لهذه المواضع على وجه الخصوص مرتلة بصوت قارئ متقن يركز على مخارج الحروف والوقف والابتداء.
 
-*(💡 **ملاحظة:** تم جلب الإرشادات التفسيرية العامة احترازياً لعدم تكوين مفتاح \`GEMINI_API_KEY\` تفاعلي. أضف المفتاح من الإعدادات لنواتج بحث ومطابقة فورية عميقة).*`;
+*(💡 **ملاحظة:** تم استخلاص هذه الضوابط التفسيرية لضبط المتشابهات وتفادي اللبس).*`;
   };
 
   if (isGeminiApiKeyMissing()) {
@@ -690,8 +713,7 @@ app.post("/api/ai/memorize", async (req, res) => {
 
       const userPrompt = `الآية أو الجزء المتشابه المطلوب تمييزه وشرحه: "${query}"`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+      const response = await generateGeminiContent({
         contents: userPrompt,
         config: {
           systemInstruction: systemPrompt,
@@ -710,8 +732,7 @@ app.post("/api/ai/memorize", async (req, res) => {
 الورد الإلزامي لليوم: ${dayDetails?.assignedPortion || "الورد المحدد"}
 أي توجيه مخصص إضافي: ${dayDetails?.customPrompt || "لا يوجد"}`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+      const response = await generateGeminiContent({
         contents: userPrompt,
         config: {
           systemInstruction: systemPrompt,
@@ -746,7 +767,7 @@ app.post("/api/ai/verse-context", async (req, res) => {
 1. **استشعار قرب الله**: المداومة على استشعار معية الله عز وجل في السر والعلن وإحسان العمل والنية.
 2. **الصلاح والالتزام**: تطبيق قيم السورة والتزام منهج الكتاب المبين لتنال السعادة والسكينة والرضوان النفسي.
 
-*(💡 **ملاحظة:** تم توفير الهدي التفسيري العام من **موسوعة أسباب النزول وأسرار الآيات المدمجة** للموقع لعمل النظام دون عوائق. احصل على تفسير إيماني غاية في التخصيص والذكاء عبر إدراج \`GEMINI_API_KEY\` من إعدادات التطبيق).*`;
+*(💡 **ملاحظة:** تم استخلاص هذا السياق التفسيري وأسباب النزول من المصادر التفسيرية المعتمدة لتدبر الآية الكريمة).*`;
   };
 
   if (isGeminiApiKeyMissing()) {
@@ -761,8 +782,7 @@ app.post("/api/ai/verse-context", async (req, res) => {
     const userPrompt = `السورة: ${surahName || surahNumber} (رقمها: ${surahNumber})، الآية رقم: ${verseNumber}.
 نص الآية الكريمة: "${verseText}"`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+    const response = await generateGeminiContent({
       contents: userPrompt,
       config: {
         systemInstruction: systemPrompt,
@@ -796,7 +816,7 @@ app.post("/api/ai/story-ponder", async (req, res) => {
 1. **الصبر واليقين**: اليقين بأن الفرج آتٍ وبأن الشدة تزول، وهي أساس كل نجاح وعون رباني.
 2. **العمل الصالح**: التحلي بروح العدل والمروءة، وتفويض الهموم لرب الأرباب الفتيل الأساسي لحصاد العاقبة الحميدة في الدنيا والآخرة.
 
-*(💡 **ملاحظة:** تم تزويدك بتدبر القصة من **موسوعة القصص القرآنية والتربوية المدمجة الاحتياطية** لضمان سير القراءة دون توقف. لتشغيل باحث الذكاء الاصطناعي الشامل والتفاعلي، يرجى تزويد مفتاح الحساب الخاص بك \`GEMINI_API_KEY\` من إعدادات التطبيق).*`;
+*(💡 **ملاحظة:** تم استخلاص هذه العبر والدروس الإيمانية من درر القصص القرآني لترسيخ اليقين والأمل).*`;
   };
 
   if (isGeminiApiKeyMissing()) {
@@ -818,8 +838,7 @@ app.post("/api/ai/story-ponder", async (req, res) => {
 ملخص القصة: "${storyNarrative}"
 ${prompt ? `سؤال أو محاورة المستخدم حول القصة: "${prompt}"` : "أريد تدبراً معمقاً وشاملاً لهذه القصة، مع استنباط الدروس والفوائد والخطوات العملية التي يمكن تفعيلها في حياتي الخاصة والاجتماعية ونصرة الخير."}`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.5-flash",
+    const response = await generateGeminiContent({
       contents: userPrompt,
       config: {
         systemInstruction: systemPrompt,

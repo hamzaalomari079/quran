@@ -462,7 +462,20 @@ export default function App() {
   }, [settings.reminderEnabled, settings.reminderTime, isAr]);
 
   // Global Audio Recitation States
-  const [activeReciter, setActiveReciter] = useState<Reciter>(recitersList[0]);
+  const [activeReciter, setActiveReciter] = useState<Reciter>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const savedId = localStorage.getItem("preferred_reciter_id");
+        if (savedId) {
+          const found = recitersList.find((r) => r.id === savedId);
+          if (found) return found;
+        }
+      } catch (err) {
+        console.warn("Storage reading error:", err);
+      }
+    }
+    return recitersList[0];
+  });
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentPlayingVerse, setCurrentPlayingVerse] = useState<{
     surahNumber: number;

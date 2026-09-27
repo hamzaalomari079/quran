@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from "react";
-import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Repeat, Settings, Disc, Info, X } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Repeat, Settings, Disc, Info, X, Mic2 } from "lucide-react";
 import { Reciter, recitersList } from "../types";
+import ReciterSelectorModal from "./ReciterSelectorModal";
 
 interface AudioPlayerProps {
   isPlaying: boolean;
@@ -248,46 +249,30 @@ export default function AudioPlayer({
                 سورة {currentPlayingVerse.surahName}
               </h4>
               <p className="text-[10.5px] md:text-xs text-stone-400 font-sans mt-0.5 truncate" dir="rtl">
-                الآية {currentPlayingVerse.verseNumber} <span className="hidden xs:inline">من {currentPlayingVerse.totalAyahs}</span> • <span className="text-amber-500/95 font-semibold">{activeReciter.name}</span>
+                الآية {currentPlayingVerse.verseNumber} <span className="hidden xs:inline">من {currentPlayingVerse.totalAyahs}</span> •{" "}
+                <button
+                  onClick={() => setShowReciters(true)}
+                  className="text-amber-400 hover:text-amber-300 font-bold hover:underline cursor-pointer transition-colors inline-flex items-center gap-1"
+                  title="تغيير القارئ والتصنيف"
+                >
+                  <span>{activeReciter.name}</span>
+                  <span className="text-[9px] px-1 py-0.2 rounded bg-amber-600/15 border border-amber-500/25 text-amber-400 font-normal">
+                    {activeReciter.riwayah}
+                  </span>
+                </button>
               </p>
             </div>
           </div>
 
-          {/* Compact Mobile Reciter Selection Button */}
-          <div className="relative md:hidden shrink-0">
-            <button
-              onClick={() => setShowReciters(!showReciters)}
-              className="px-2.5 py-1.5 rounded-xl border border-stone-800 bg-stone-850 text-[10px] font-bold text-stone-300 hover:bg-stone-800 flex items-center gap-1 cursor-pointer transition-all active:scale-95"
-            >
-              <Settings className="w-3 h-3 text-amber-500 shrink-0" />
-              <span>القارئ</span>
-            </button>
-
-            {showReciters && (
-              <div className="absolute bottom-full mb-2 left-0 bg-stone-900 border border-amber-500/20 rounded-2xl shadow-2xl py-2 w-52 z-55 animate-in fade-in slide-in-from-bottom-2 duration-200">
-                <div className="px-3 py-1.5 border-b border-stone-850 text-[10px] font-black text-amber-500 tracking-wider text-right">
-                  اختر قارئ التلاوة
-                </div>
-                <div className="max-h-48 overflow-y-auto">
-                  {recitersList.map((reciter) => (
-                    <button
-                      key={reciter.id}
-                      onClick={() => {
-                        setActiveReciter(reciter);
-                        setShowReciters(false);
-                      }}
-                      className={`w-full text-right px-4 py-2.5 hover:bg-stone-800 text-[11px] flex flex-col gap-0.5 cursor-pointer ${
-                        activeReciter.id === reciter.id ? "bg-amber-600/10 text-amber-400 font-bold" : "text-stone-300"
-                      }`}
-                    >
-                      <span className="font-bold">{reciter.name}</span>
-                      <span className="text-[9px] text-stone-450 font-normal">{reciter.subtext}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
+          {/* Compact Mobile Reciter Selection Trigger */}
+          <button
+            onClick={() => setShowReciters(true)}
+            className="px-2.5 py-1.5 rounded-xl border border-amber-500/25 bg-amber-600/10 hover:bg-amber-600/20 text-[10.5px] font-bold text-amber-400 flex items-center gap-1.5 cursor-pointer transition-all active:scale-95 shrink-0 md:hidden"
+            title="اختيار القارئ وتصنيفات التلاوة"
+          >
+            <Mic2 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span className="truncate max-w-[85px]">{activeReciter.name.split(" ")[0]}</span>
+          </button>
         </div>
 
         {/* ROW 2 (On mobile): Navigation Buttons, Loop, Playback options */}
@@ -388,41 +373,18 @@ export default function AudioPlayer({
             <Repeat className="w-4 h-4" />
           </button>
 
-          {/* Reciter Selector dropdown toggler */}
-          <div className="relative">
-            <button
-              onClick={() => setShowReciters(!showReciters)}
-              className="px-3 py-1.5 rounded-lg border border-stone-800 bg-stone-850 text-xs font-medium text-stone-300 hover:bg-stone-800 flex items-center gap-1.5 transition-colors cursor-pointer whitespace-nowrap"
-            >
-              <Settings className="w-3.5 h-3.5" />
-              <span>أختر القارئ</span>
-            </button>
-
-            {showReciters && (
-              <div className="absolute bottom-full mb-2 right-0 bg-stone-900 border border-stone-800 rounded-xl shadow-2xl py-2 w-56 z-55 animate-in fade-in slide-in-from-bottom-2 duration-200">
-                <div className="px-3 py-1.5 border-b border-stone-850 text-[10px] font-bold text-amber-500 tracking-wider uppercase text-right">
-                  اختر قارئ التلاوة
-                </div>
-                <div className="max-h-52 overflow-y-auto">
-                  {recitersList.map((reciter) => (
-                    <button
-                      key={reciter.id}
-                      onClick={() => {
-                        setActiveReciter(reciter);
-                        setShowReciters(false);
-                      }}
-                      className={`w-full text-right px-4 py-2 hover:bg-stone-800 text-xs flex flex-col gap-0.5 cursor-pointer ${
-                        activeReciter.id === reciter.id ? "bg-amber-600/10 text-amber-500 font-bold" : "text-stone-300"
-                      }`}
-                    >
-                      <span>{reciter.name}</span>
-                      <span className="text-[10px] text-stone-450 font-normal">{reciter.subtext}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
+          {/* Desktop Reciter Selector Modal Trigger */}
+          <button
+            onClick={() => setShowReciters(true)}
+            className="px-3 py-1.5 rounded-xl border border-stone-800 bg-stone-850 hover:bg-stone-800 hover:border-amber-500/40 text-xs font-semibold text-stone-200 flex items-center gap-2 transition-all cursor-pointer whitespace-nowrap active:scale-95 group"
+            title="اختيار القارئ (قراء الحرمين، التجويد، الروايات)"
+          >
+            <Mic2 className="w-3.5 h-3.5 text-amber-500 group-hover:scale-110 transition-transform" />
+            <span className="text-amber-400 font-bold">{activeReciter.name}</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-stone-900 border border-stone-800 text-stone-400 font-sans">
+              {activeReciter.category === 'haramain' ? 'الحرمين' : activeReciter.category === 'tajweed' ? 'تجويد' : activeReciter.category === 'riwayat' ? 'ورش' : 'ترتيل'}
+            </span>
+          </button>
 
           {/* Volume Control */}
           <div className="flex items-center gap-1.5">
@@ -450,6 +412,14 @@ export default function AudioPlayer({
         </div>
 
       </div>
+
+      {/* Full-featured Categorized Reciters Modal with Smart Search & Filtering */}
+      <ReciterSelectorModal
+        isOpen={showReciters}
+        onClose={() => setShowReciters(false)}
+        activeReciter={activeReciter}
+        onSelectReciter={setActiveReciter}
+      />
     </div>
   );
 }

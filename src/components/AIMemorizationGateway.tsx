@@ -888,11 +888,34 @@ export default function AIMemorizationGateway({ currentLang = "ar" }: { currentL
                   onChange={(e) => setTutorReciterId(e.target.value)}
                   className="w-full bg-stone-950 border border-stone-850 rounded-xl px-3 py-2.5 text-xs text-amber-400 font-sans font-bold focus:border-amber-500/50 outline-none cursor-pointer"
                 >
-                  {recitersList.map((r) => (
-                    <option key={r.id} value={r.id} className="bg-stone-950 text-stone-200">
-                      {r.name}
-                    </option>
-                  ))}
+                  <optgroup label={isAr ? "🕌 قراء الحرمين الشريفين" : "Two Holy Mosques Imams"}>
+                    {recitersList.filter(r => r.category === 'haramain').map((r) => (
+                      <option key={r.id} value={r.id} className="bg-stone-950 text-stone-200">
+                        {r.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label={isAr ? "✨ قراء التجويد والمجود" : "Masters of Tajweed"}>
+                    {recitersList.filter(r => r.category === 'tajweed').map((r) => (
+                      <option key={r.id} value={r.id} className="bg-stone-950 text-stone-200">
+                        {r.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label={isAr ? "📖 قراء الروايات (ورش عن نافع)" : "Narrations (Warsh)"}>
+                    {recitersList.filter(r => r.category === 'riwayat').map((r) => (
+                      <option key={r.id} value={r.id} className="bg-stone-950 text-stone-200">
+                        {r.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label={isAr ? "🎙️ قراء الترتيل الخاشع" : "Murattal Reciters"}>
+                    {recitersList.filter(r => r.category === 'murattal').map((r) => (
+                      <option key={r.id} value={r.id} className="bg-stone-950 text-stone-200">
+                        {r.name}
+                      </option>
+                    ))}
+                  </optgroup>
                 </select>
               </div>
 
