@@ -2,7 +2,6 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import os from "os";
-import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import dotenv from "dotenv";
 import { surahList } from "./src/data/surahData";
@@ -18,7 +17,21 @@ dotenv.config();
 
 const app = express();
 app.enable("trust proxy");
-const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
+
+const getPort = (): number => {
+  const args = process.argv;
+  const portArgIndex = args.indexOf("--port");
+  if (portArgIndex !== -1 && args[portArgIndex + 1]) {
+    const parsed = parseInt(args[portArgIndex + 1]);
+    if (!isNaN(parsed)) return parsed;
+  }
+  if (process.env.PORT) {
+    const parsed = parseInt(process.env.PORT);
+    if (!isNaN(parsed)) return parsed;
+  }
+  return 3000;
+};
+const PORT = getPort();
 
 app.use(express.json());
 
@@ -1103,26 +1116,49 @@ function mountProductionHandlers() {
   });
 }
 
-// In production / Vercel, mount production routes immediately
-if (isProd) {
-  mountProductionHandlers();
-} else {
-  // In development, initialize Vite middleware
-  createViteServer({
-    server: { middlewareMode: true },
-    appType: "spa",
-  }).then(vite => {
-    app.use(vite.middlewares);
-  }).catch(err => {
-    console.error("Failed to start Vite middleware in dev:", err);
-  });
+async function startServer() {
+  if (isProd) {
+    mountProductionHandlers();
+  } else {
+    try {
+      const { createServer } = await import("vite");
+      const vite = await createServer({
+        server: { middlewareMode: true },
+        appType: "spa",
+      });
+      app.use(vite.middlewares);
+
+      // In dev mode, handle SPA HTML routing with Vite transformIndexHtml
+      app.use("*", async (req, res, next) => {
+        if (req.path.startsWith("/api/")) {
+          return next();
+        }
+        try {
+          const indexPath = path.resolve(process.cwd(), "index.html");
+          if (fs.existsSync(indexPath)) {
+            let template = fs.readFileSync(indexPath, "utf-8");
+            template = await vite.transformIndexHtml(req.originalUrl, template);
+            return res.status(200).set({ "Content-Type": "text/html; charset=utf-8" }).send(template);
+          }
+          next();
+        } catch (e: any) {
+          vite.ssrFixStacktrace(e);
+          next(e);
+        }
+      });
+    } catch (err) {
+      console.error("Failed to start Vite middleware in dev:", err);
+    }
+  }
+
+  // Start standalone HTTP listener only when NOT running as a serverless function (Vercel)
+  if (!isVercel) {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on port ${PORT} with environment ${process.env.NODE_ENV || 'development'}`);
+    });
+  }
 }
 
-// Start standalone HTTP listener only when NOT running as a serverless function (Vercel)
-if (!isVercel) {
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT} with environment ${process.env.NODE_ENV || 'development'}`);
-  });
-}
+startServer();
 
 export default app;

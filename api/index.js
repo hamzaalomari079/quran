@@ -3,7 +3,6 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import os from "os";
-import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import dotenv from "dotenv";
 
@@ -548,7 +547,20 @@ ${prompt ? `- **\u062D\u0648\u0644 \u062A\u0633\u0627\u0624\u0644\u0643 \u0627\u
 dotenv.config();
 var app = express();
 app.enable("trust proxy");
-var PORT = process.env.PORT ? parseInt(process.env.PORT) : 3e3;
+var getPort = () => {
+  const args = process.argv;
+  const portArgIndex = args.indexOf("--port");
+  if (portArgIndex !== -1 && args[portArgIndex + 1]) {
+    const parsed = parseInt(args[portArgIndex + 1]);
+    if (!isNaN(parsed)) return parsed;
+  }
+  if (process.env.PORT) {
+    const parsed = parseInt(process.env.PORT);
+    if (!isNaN(parsed)) return parsed;
+  }
+  return 3e3;
+};
+var PORT = getPort();
 app.use(express.json());
 app.use((req, res, next) => {
   const host = req.get("host") || "";
@@ -1434,23 +1446,45 @@ function mountProductionHandlers() {
     }
   });
 }
-if (isProd) {
-  mountProductionHandlers();
-} else {
-  createViteServer({
-    server: { middlewareMode: true },
-    appType: "spa"
-  }).then((vite) => {
-    app.use(vite.middlewares);
-  }).catch((err) => {
-    console.error("Failed to start Vite middleware in dev:", err);
-  });
+async function startServer() {
+  if (isProd) {
+    mountProductionHandlers();
+  } else {
+    try {
+      const { createServer } = await import("vite");
+      const vite = await createServer({
+        server: { middlewareMode: true },
+        appType: "spa"
+      });
+      app.use(vite.middlewares);
+      app.use("*", async (req, res, next) => {
+        if (req.path.startsWith("/api/")) {
+          return next();
+        }
+        try {
+          const indexPath = path.resolve(process.cwd(), "index.html");
+          if (fs.existsSync(indexPath)) {
+            let template = fs.readFileSync(indexPath, "utf-8");
+            template = await vite.transformIndexHtml(req.originalUrl, template);
+            return res.status(200).set({ "Content-Type": "text/html; charset=utf-8" }).send(template);
+          }
+          next();
+        } catch (e) {
+          vite.ssrFixStacktrace(e);
+          next(e);
+        }
+      });
+    } catch (err) {
+      console.error("Failed to start Vite middleware in dev:", err);
+    }
+  }
+  if (!isVercel) {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on port ${PORT} with environment ${process.env.NODE_ENV || "development"}`);
+    });
+  }
 }
-if (!isVercel) {
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT} with environment ${process.env.NODE_ENV || "development"}`);
-  });
-}
+startServer();
 var server_default = app;
 export {
   server_default as default
