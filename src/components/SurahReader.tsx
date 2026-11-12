@@ -5,6 +5,7 @@ import { Verse, SurahDetails, Bookmark as BookmarkType, GlobalSettings, Reciter 
 import { getTranslation, translations } from "../utils/translations";
 import { surahList } from "../data/surahData";
 import { hasStory, getStoryForVerse } from "../data/storiesData";
+import { generateLocalVerseContext, isLegacyErrorText } from "../utils/quranAiEngine";
 
 interface SurahReaderProps {
   surahNumber: number;
@@ -169,10 +170,14 @@ export default function SurahReader({
     setStoryError(null);
 
     if (!isOnline) {
-      setStoryError(
-        isAr 
-          ? "⚠️ عذراً، ميزة أسباب النزول والقصص المتقدمة تتطلب اتصالاً بالإنترنت للاتصال بمرشدك الإيماني الذكي. ولكن يمكنك دائماً قراءة تفسير الجلالين المتوفر أوفلاين كاملاً بأسفل الآية الكريمة دون اتصال!" 
-          : "⚠️ Advanced Asbab Al-Nuzul requires an active internet connection. You can still read Tafsir Al-Jalalayn below completely offline!"
+      setVerseStory(
+        generateLocalVerseContext({
+          surahName,
+          surahNumber,
+          verseNumber: verse.numberInSurah,
+          verseText: verse.text,
+          tafsir: verse.tafsir
+        })
       );
       setLoadingStory(false);
       return;
@@ -186,7 +191,8 @@ export default function SurahReader({
           surahName,
           surahNumber,
           verseNumber: verse.numberInSurah,
-          verseText: verse.text
+          verseText: verse.text,
+          tafsir: verse.tafsir
         })
       });
 
@@ -197,21 +203,29 @@ export default function SurahReader({
         // Fallback if not JSON
       }
 
-      if (!response.ok) {
-        throw new Error(data?.error || (isAr ? "فشل الاتصال بالخادم لجلب تفاصيل الآية." : "Server error bringing verse story details."));
+      if (data && data.result && !isLegacyErrorText(data.result)) {
+        setVerseStory(data.result);
+      } else {
+        setVerseStory(
+          generateLocalVerseContext({
+            surahName,
+            surahNumber,
+            verseNumber: verse.numberInSurah,
+            verseText: verse.text,
+            tafsir: verse.tafsir
+          })
+        );
       }
-
-      if (data && data.error) {
-        throw new Error(data.error);
-      }
-
-      if (!data || !data.result) {
-        throw new Error(isAr ? "عذراً، استجابة الخادم غير صالحة أو فارغة حالياً." : "Empty or invalid server response for verse detail.");
-      }
-
-      setVerseStory(data.result);
     } catch (err: any) {
-      setStoryError(err.message || (isAr ? "نأسف، تعذر الاتصال بمساعد التفسير والنزول حالياً." : "Failed to load verse context."));
+      setVerseStory(
+        generateLocalVerseContext({
+          surahName,
+          surahNumber,
+          verseNumber: verse.numberInSurah,
+          verseText: verse.text,
+          tafsir: verse.tafsir
+        })
+      );
     } finally {
       setLoadingStory(false);
     }
@@ -817,16 +831,68 @@ export default function SurahReader({
         if (!isOnline) {
           throw new Error("offline");
         }
-        const response = await fetch(`/api/surah/${surahNumber}`);
-        if (!response.ok) {
+
+        let loadedData: any = null;
+
+        // 1. Try our own server API endpoint first
+        try {
+          const response = await fetch(`/api/surah/${surahNumber}`);
+          const contentType = response.headers.get("content-type") || "";
+          if (response.ok && contentType.includes("application/json")) {
+            const data = await response.json();
+            if (data && data.verses && data.verses.length > 0 && !data.error) {
+              loadedData = data;
+            }
+          }
+        } catch (serverErr) {
+          console.warn("Primary /api/surah failed, attempting direct cloud fallback:", serverErr);
+        }
+
+        // 2. Direct client-side cloud fallback if server endpoint was unreachable or returned non-JSON
+        if (!loadedData) {
+          try {
+            const cloudRes = await fetch(
+              `https://api.alquran.cloud/v1/surah/${surahNumber}/editions/quran-uthmani,en.sahih,ar.jalalayn`
+            );
+            if (cloudRes.ok) {
+              const cloudJson = await cloudRes.json();
+              if (cloudJson.code === 200 && cloudJson.data && cloudJson.data.length >= 3) {
+                const uthmaniData = cloudJson.data[0];
+                const translationData = cloudJson.data[1];
+                const tafsirData = cloudJson.data[2];
+
+                const verses = uthmaniData.ayahs.map((ayah: any, index: number) => ({
+                  numberInSurah: ayah.numberInSurah,
+                  text: ayah.text,
+                  translation: translationData.ayahs[index]?.text || "",
+                  tafsir: tafsirData.ayahs[index]?.text || "",
+                  juz: ayah.juz,
+                  page: ayah.page,
+                  audio: `https://cdn.aladhan.com/sound/quran/alafasy-64/${ayah.number}.mp3`
+                }));
+
+                loadedData = {
+                  number: uthmaniData.number,
+                  name: uthmaniData.name,
+                  englishName: uthmaniData.englishName,
+                  englishNameTranslation: uthmaniData.englishNameTranslation,
+                  numberOfAyahs: uthmaniData.numberOfAyahs,
+                  revelationType: uthmaniData.revelationType,
+                  verses: verses
+                };
+              }
+            }
+          } catch (cloudErr) {
+            console.warn("Direct cloud fallback also failed:", cloudErr);
+          }
+        }
+
+        if (!loadedData) {
           throw new Error("فشل الاتصال بالخادم لتحميل السورة.");
         }
-        const data = await response.json();
-        if (data.error) {
-          throw new Error(data.error);
-        }
+
         if (active) {
-          setSurah(data);
+          setSurah(loadedData);
         }
       } catch (err: any) {
         if (active) {

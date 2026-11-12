@@ -1,4 +1,4 @@
-const CACHE_NAME = "quran-pwa-cache-v1";
+const CACHE_NAME = "quran-pwa-cache-v5";
 const ASSETS = [
   "/",
   "/index.html",

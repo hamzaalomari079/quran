@@ -1,16 +1,24 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import os from "os";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, ThinkingLevel } from "@google/genai";
 import dotenv from "dotenv";
 import { surahList } from "./src/data/surahData";
+import {
+  generateLocalGuidance,
+  generateLocalMemorizationTips,
+  generateLocalSimilarity,
+  generateLocalVerseContext,
+  generateLocalStoryPonder,
+} from "./src/utils/quranAiEngine";
 
 dotenv.config();
 
 const app = express();
 app.enable("trust proxy");
-const PORT = 3000;
+const PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 
 app.use(express.json());
 
@@ -55,116 +63,98 @@ app.use((req, res, next) => {
   next();
 });
 
-// Explicit SEO route for sitemap.xml to guarantee precise content-type, encoding, headers, and prevent BOM or HTML prefixing
-app.get("/sitemap.xml", (req, res) => {
-  try {
-    const publicPath = path.join(process.cwd(), "public", "sitemap.xml");
-    const distPath = path.join(process.cwd(), "dist", "sitemap.xml");
-    
-    // Check in dist first (production built), then fallback to public
-    let filePath = distPath;
-    if (!fs.existsSync(filePath)) {
-      filePath = publicPath;
-    }
-    
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).send("Sitemap not found");
-    }
-    
-    let content = fs.readFileSync(filePath, "utf-8");
-    
-    // Prevent BOM UTF-8 issues by stripping BOM character if present
-    content = content.replace(/^\uFEFF/, "");
-    
-    // Prevent any HTML prefixing by ensuring it starts with the XML declaration
-    content = content.trim();
-    
-    // Set explicit professional HTTP Headers for search console compliance
-    res.header("Content-Type", "application/xml; charset=utf-8");
-    res.header("X-Robots-Tag", "index, follow");
-    res.header("Cache-Control", "public, max-age=0, must-revalidate");
-    
-    return res.status(200).send(content);
-  } catch (err: any) {
-    console.error("Error serving sitemap.xml:", err);
-    return res.status(500).send("Error generating sitemap.xml");
-  }
-});
+// Dynamic server-side Gemini client & resilient multi-model failover with cooldown tracking
+const modelCooldownUntil = new Map<string, number>();
+const aiResponseCache = new Map<string, any>();
 
-// Explicit SEO route for robots.txt to consolidate crawler instruction delivery
-app.get("/robots.txt", (req, res) => {
-  try {
-    const publicPath = path.join(process.cwd(), "public", "robots.txt");
-    const distPath = path.join(process.cwd(), "dist", "robots.txt");
-    
-    let filePath = distPath;
-    if (!fs.existsSync(filePath)) {
-      filePath = publicPath;
-    }
-    
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).send("Robots.txt not found");
-    }
-    
-    let content = fs.readFileSync(filePath, "utf-8");
-    content = content.replace(/^\uFEFF/, "").trim();
-    
-    res.header("Content-Type", "text/plain; charset=utf-8");
-    res.header("X-Robots-Tag", "index, follow");
-    res.header("Cache-Control", "public, max-age=0, must-revalidate");
-    
-    return res.status(200).send(content);
-  } catch (err: any) {
-    console.error("Error serving robots.txt:", err);
-    return res.status(500).send("Error serving robots.txt");
+const getActiveApiKey = (): string => {
+  const key = process.env.GEMINI_API_KEY || process.env.API_KEY || "";
+  if (!key || key.trim() === "" || key === "MY_GEMINI_API_KEY" || key === "YOUR_GEMINI_API_KEY" || key.includes("MY_")) {
+    return "";
   }
-});
+  return key.trim();
+};
 
-// Initialize Gemini SDK with User-Agent as required by system instructions
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY || "",
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
-    }
-  }
-});
+const isGeminiApiKeyMissing = () => {
+  return getActiveApiKey() === "";
+};
 
-// Resilient server-side Gemini helper with automatic failover between supported models
 const generateGeminiContent = async (params: {
   contents: any;
   config?: any;
 }) => {
-  const mergedConfig = {
-    thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
-    ...params.config,
-  };
-  try {
-    return await ai.models.generateContent({
-      model: "gemini-3.8-flash",
-      contents: params.contents,
-      config: mergedConfig,
-    });
-  } catch (primaryErr: any) {
-    console.warn("Primary model (gemini-3.8-flash) encountered an issue, trying fallback model (gemini-3.1-flash-lite):", primaryErr?.message);
-    return await ai.models.generateContent({
-      model: "gemini-3.1-flash-lite",
-      contents: params.contents,
-      config: params.config,
-    });
+  const apiKey = getActiveApiKey();
+  if (!apiKey) {
+    throw new Error("No active API key configured");
   }
+
+  const ai = new GoogleGenAI({
+    apiKey,
+    httpOptions: {
+      headers: {
+        "User-Agent": "aistudio-build",
+      },
+    },
+  });
+
+  // Official Gemini models with automatic failover (prioritizing responsive production models)
+  const candidateModels = [
+    { name: "gemini-3.5-flash", useThinking: false },
+    { name: "gemini-3.5-flash-lite", useThinking: false },
+    { name: "gemini-3.8-flash", useThinking: true },
+    { name: "gemini-3.1-flash-lite-preview", useThinking: false },
+  ];
+
+  const now = Date.now();
+  const availableModels = candidateModels.filter((m) => (modelCooldownUntil.get(m.name) || 0) <= now);
+  const modelsToTry = availableModels.length > 0 ? availableModels : candidateModels;
+
+  // Strip deprecated sampling parameters (temperature, topP, topK, candidateCount, thinkingBudget)
+  const sanitizedConfig: Record<string, any> = {};
+  if (params.config && typeof params.config === "object") {
+    for (const [k, v] of Object.entries(params.config)) {
+      if (!["temperature", "topP", "topK", "candidateCount", "thinkingBudget"].includes(k)) {
+        sanitizedConfig[k] = v;
+      }
+    }
+  }
+
+  let lastError: any = null;
+  for (const modelInfo of modelsToTry) {
+    try {
+      const callConfig = modelInfo.useThinking
+        ? { ...sanitizedConfig, thinkingConfig: { thinkingLevel: ThinkingLevel.LOW } }
+        : { ...sanitizedConfig };
+
+      const generatePromise = ai.models.generateContent({
+        model: modelInfo.name,
+        contents: params.contents,
+        config: callConfig,
+      });
+
+      // 6.5s timeout per model to prevent serverless function hangs and guarantee instant fallback
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`Timeout after 6500ms on ${modelInfo.name}`)), 6500)
+      );
+
+      return await Promise.race([generatePromise, timeoutPromise]);
+    } catch (err: any) {
+      lastError = err;
+      const msg = String(err?.message || "");
+      if (msg.includes("429") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("quota") || msg.includes("UNAVAILABLE") || msg.includes("503")) {
+        modelCooldownUntil.set(modelInfo.name, Date.now() + 10 * 60 * 1000);
+      }
+      console.warn(`Model ${modelInfo.name} failed/timed out, trying next candidate:`, msg.slice(0, 160));
+    }
+  }
+
+  throw lastError || new Error("All candidate models failed");
 };
 
-// API Routes
-
-const isGeminiApiKeyMissing = () => {
-  const key = process.env.GEMINI_API_KEY;
-  return !key || key.trim() === "" || key === "MY_GEMINI_API_KEY" || key === "YOUR_GEMINI_API_KEY" || key.includes("MY_");
-};
-
-// In-memory caching for faster search results
+// In-memory caching for faster search and surah results
 const searchCache = new Map<string, any>();
 const ayahCache = new Map<number, string>();
+const memorySurahCache = new Map<number, any>();
 
 // Resilient helper to fetch external APIs with a strict timeout limit to avoid sluggish API behaviors
 const fetchWithTimeout = (url: string, timeout = 750) => {
@@ -183,11 +173,29 @@ const fetchWithTimeout = (url: string, timeout = 750) => {
   });
 };
 
-// Ensure server-side disk caching folder exists for supreme API reliability
-const CACHE_DIR = path.join(process.cwd(), "cache_surahs");
-if (!fs.existsSync(CACHE_DIR)) {
-  fs.mkdirSync(CACHE_DIR, { recursive: true });
-}
+// Safe directory resolver for read/write cache (handles serverless environments like Vercel gracefully)
+const getSafeCacheDir = () => {
+  const localDir = path.join(process.cwd(), "cache_surahs");
+  try {
+    if (!fs.existsSync(localDir)) {
+      fs.mkdirSync(localDir, { recursive: true });
+    }
+    return localDir;
+  } catch {
+    // If current directory is read-only (e.g. AWS Lambda / Vercel Serverless), fallback to /tmp
+    const tmpDir = path.join(os.tmpdir(), "cache_surahs");
+    try {
+      if (!fs.existsSync(tmpDir)) {
+        fs.mkdirSync(tmpDir, { recursive: true });
+      }
+      return tmpDir;
+    } catch {
+      return null;
+    }
+  }
+};
+
+const CACHE_DIR = getSafeCacheDir();
 
 // Helper to delay execution (used for retry backoff)
 const delay = (ms: number) => new Promise(res => setTimeout(res, ms));
@@ -219,19 +227,27 @@ app.get("/api/surah/:number", async (req, res) => {
     return res.status(400).json({ error: "Invalid surah number. Must be between 1 and 114." });
   }
 
-  const cachePath = path.join(CACHE_DIR, `surah_${surahNumber}.json`);
+  // A1. Check in-memory cache first (instant response, zero disk I/O)
+  if (memorySurahCache.has(surahNumber)) {
+    res.header("X-Cache", "HIT-MEMORY");
+    return res.json(memorySurahCache.get(surahNumber));
+  }
 
-  // A. Check if Surah data exists in the high-speed local filesystem cache
-  if (fs.existsSync(cachePath)) {
-    try {
-      const cachedDataStr = fs.readFileSync(cachePath, "utf-8");
-      const cachedData = JSON.parse(cachedDataStr);
-      if (cachedData && cachedData.verses && cachedData.verses.length > 0) {
-        res.header("X-Cache", "HIT");
-        return res.json(cachedData);
+  // A2. Check filesystem cache
+  if (CACHE_DIR) {
+    const cachePath = path.join(CACHE_DIR, `surah_${surahNumber}.json`);
+    if (fs.existsSync(cachePath)) {
+      try {
+        const cachedDataStr = fs.readFileSync(cachePath, "utf-8");
+        const cachedData = JSON.parse(cachedDataStr);
+        if (cachedData && cachedData.verses && cachedData.verses.length > 0) {
+          memorySurahCache.set(surahNumber, cachedData);
+          res.header("X-Cache", "HIT-DISK");
+          return res.json(cachedData);
+        }
+      } catch (cacheReadErr: any) {
+        console.error(`Local cache file read glitch (Surah ${surahNumber}):`, cacheReadErr.message);
       }
-    } catch (cacheReadErr: any) {
-      console.error(`Local cache file read glitch (Surah ${surahNumber}):`, cacheReadErr.message);
     }
   }
 
@@ -273,11 +289,17 @@ app.get("/api/surah/:number", async (req, res) => {
       verses: verses
     };
 
-    // C. Save it on local disk cache persistently
-    try {
-      fs.writeFileSync(cachePath, JSON.stringify(combinedResult, null, 2), "utf-8");
-    } catch (cacheWriteErr: any) {
-      console.error(`Failed to save Surah ${surahNumber} to local cache files:`, cacheWriteErr.message);
+    // C1. Save to in-memory cache
+    memorySurahCache.set(surahNumber, combinedResult);
+
+    // C2. Save to local disk cache persistently if writable
+    if (CACHE_DIR) {
+      try {
+        const cachePath = path.join(CACHE_DIR, `surah_${surahNumber}.json`);
+        fs.writeFileSync(cachePath, JSON.stringify(combinedResult, null, 2), "utf-8");
+      } catch (cacheWriteErr: any) {
+        console.warn(`Note: Could not write Surah ${surahNumber} to disk cache:`, cacheWriteErr.message);
+      }
     }
 
     res.header("X-Cache", "MISS");
@@ -539,193 +561,135 @@ app.get("/api/search", async (req, res) => {
   }
 });
 
-// 2. AI Tafsir, Quranic Guidance and Spiritual Finder Endpoint (Gemini with Smart Fallbacks)
+// 2. AI Tafsir, Quranic Guidance and Spiritual Finder Endpoint
 app.post("/api/ai/guidance", async (req, res) => {
-  const { prompt, verseText, contextType } = req.body;
+  const { prompt, verseText, contextType, history, extraTafsir } = req.body;
 
   if (!prompt) {
     return res.status(400).json({ error: "الرجاء إدخال نص السؤال أو التدبر." });
   }
 
-  // Define fallback generator to handle missing keys gracefully
-  const generateFallbackResponse = () => {
-    let fallbackText = "";
-    if (contextType === "verse-tafsir") {
-      fallbackText = `### 📖 تدبر الآية (تفسير الجلالين وتفسير ابن كثير)
-الآية المدروسة: **"${verseText || "غير محددة"}"**
+  const cacheKey = `guidance:${contextType || "general"}:${verseText || ""}:${prompt.trim()}`;
+  if (aiResponseCache.has(cacheKey) && (!history || history.length <= 1)) {
+    return res.json({ result: aiResponseCache.get(cacheKey) });
+  }
 
-**سؤالك واستفسارك حول الآية:** ${prompt}
+  const generateFallbackResponse = () =>
+    generateLocalGuidance({ prompt, verseText, contextType, extraTafsir });
 
-**التدبر والتوجيه الفقهي والإيماني المعتمد:**
-وفقاً لكتب التفسير المعتمدة لعلماء الأمة الإسلامية (كالإمامين الجلالين السيوطي والمحلي، والشيخ المفسر ابن كثير)، فإن الآية الكريمة تحمل توجيهاً ربانياً معجزاً.
-- **التوجيه الإيماني والتربوي**: يحثنا التفسير على استشعار مراقبة الخالق عز وجل والصلة والتقرب إليه، والثقة برحمة الله العظيمة ولطفه الخفي والظاهر بعباده المؤمنين في جميع أحوالهم.
-- **التطبيق العملي بالآية**: يُستحب للمسلم المداومة على تلاوة وتدبر معانيها وتطبيق ما جاء فيها من مكارم الأخلاق والواجبات، وتقوية عقيدة النفس بالصبر عند الابتلاء والرضا والحمد لله.
-
-*(💡 **ملاحظة:** تم استخلاص هذا التفسير والتدبر من المكتبة التفسيرية المعتمدة لضمان استمرار القراءة والتدبر بسلاسة).*`;
-    } else {
-      // Spiritual topic adviser key-word search
-      const queryLower = prompt.toLowerCase();
-      let matchedAdvice = "";
-      let matchedVerse = "";
-      let matchedRef = "";
-
-      if (queryLower.includes("حزن") || queryLower.includes("ضيق") || queryLower.includes("هم") || queryLower.includes("مهموم") || queryLower.includes("sad") || queryLower.includes("worry") || queryLower.includes("grief")) {
-        matchedVerse = "أَلَا بِذِكْرِ اللَّهِ تَطْمَئِنُّ الْقُلُوبُ";
-        matchedRef = "سورة الرعد: الآية ٢٨";
-        matchedAdvice = "هموم الدنيا وعوارضها تزول بالرجوع لذكر الله، وطمأنينة القلب وجلاؤه يكمن في سياج الاستغفار، والصلوات والمناجاة الخاشعة. الله تبارك وتعالى يربط على قلوب عباده المنكسرين دوماً.";
-      } else if (queryLower.includes("صبر") || queryLower.includes("ابتلاء") || queryLower.includes("بلاء") || queryLower.includes("صعب") || queryLower.includes("patience") || queryLower.includes("hard")) {
-        matchedVerse = "فَإِنَّ مَعَ الْعُسْرِ يُسْرًا * إِنَّ مَعَ الْعُسْرِ يُسْرًا";
-        matchedRef = "سورة الشرح: الآيات ٥-٦";
-        matchedAdvice = "إن مع الشدة فرجاً وبشرى قريبة، وتثبيت النفس بالصبر والاحتساب والصلاة يجذب معية الله الخاصة ونصرته لقلوب الصابرين. ثق أن الفرج آتٍ لا محالة.";
-      } else if (queryLower.includes("توبة") || queryLower.includes("ذنب") || queryLower.includes("ذُنوب") || queryLower.includes("أذنبت") || queryLower.includes("repent") || queryLower.includes("sin")) {
-        matchedVerse = "قُلْ يَا عِبَادِيَ الَّذِينَ أَسْرَفُوا عَلَىٰ أَنفُسِهِمْ لَا تَقْنَطُوا مِن رَّحْمَةِ اللَّهِ ۚ إِنَّ اللَّهَ يَغْفِرُ الذُّنُوبَ جَمِيعًا";
-        matchedRef = "سورة الزمر: الآية ٥٣";
-        matchedAdvice = "أبواب التوبة والمغفرة مفتوحة للعباد في كل حين، والندم الصادق والإقبال على الملك وبذل الطاعات يمحو غبار الذنوب الصغائر والكبائر ويبدلها حسنات باهية برحمة الرب الواسعة.";
-      } else if (queryLower.includes("خوف") || queryLower.includes("قلق") || queryLower.includes("مستقبل") || queryLower.includes("fear") || queryLower.includes("anxious")) {
-        matchedVerse = "وَمَن يَتَّقِ اللَّهَ يَجْعَل لَّهُ مَخْرَجًا * وَيَرْزُقْهُ مِنْ حَيْثُ لَا يَحْتَسِبُ";
-        matchedRef = "سورة الطلاق: الآيات ٢-٣";
-        matchedAdvice = "تقوى الخالق وتفويض الأمور للحي القيوم يطرد وساوس الخوف والقلق من الغد. أحسن الظن بالله فهو نعم الوكيل والكفيل واللطيف بعباده.";
-      } else {
-        // Default general Quranic wisdom
-        matchedVerse = "الْحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ * الرَّحْمَٰنِ الرَّحِيمِ * مَالِكِ يَوْمِ الدِّينِ";
-        matchedRef = "سورة الفاتحة: الآيات ٢-٤";
-        matchedAdvice = "تسليم الأمر وتفويض النفس لله العلي الكبير وحمد جلاله في كل وقت هو ذروة الطمأنينة ومفتاح الانشراح والنور في كل شعاب ومسالك الحياة.";
-      }
-
-      fallbackText = `### 🧭 الإرشاد القرآني لسكينة النفس ومعارج الإيمان
-
-بناءً على مشاعرك وتساؤلك الكريم المعروض: **"${prompt}"**
-
-يرشدنا التنزيل الحكيم بآية مناسبة تشفي الصدور:
-> **「 ${matchedVerse} 」**
-> *[ ${matchedRef} ]*
-
-**💡 التدبر العملي والوصية النبوية والإيمانية:**
-${matchedAdvice}
-- **كيف نطبق هذا الهدي المبارك اليوم؟**:
-  1. حافظ على تلاوة وتكرار هذه الآية بتمعن في صلاتك اليومية.
-  2. ابدأ يومك أو ليلتك بصلاة ركعتين خاشعتين بنية تيسير الأمر وراحة البال.
-  3. لازم أذكار الصباح والمساء والاستغفار، فبها يزول الكرب وتُستجلب الرحمات العظام.
-
-*(💡 **ملاحظة:** تم استخلاص هذا الهدي القرآني من دليل الآيات والسكينة لراحة البال وطمأنينة القلب).*`;
-    }
-    return fallbackText;
-  };
-
-  // If Gemini API Key is missing, return beautiful offline guidance fallback
   if (isGeminiApiKeyMissing()) {
-    const fallbackResponse = generateFallbackResponse();
-    return res.json({ result: fallbackResponse, isFallback: true });
+    return res.json({ result: generateFallbackResponse() });
   }
 
   try {
     let systemPrompt = "";
     let userPrompt = "";
 
-    if (contextType === "verse-tafsir") {
-      // User is asking about a specific verse
-      systemPrompt = `أنت مفسر قرآن كريم وعالم إيماني حكيم ورفيق مبسط للعلوم الإسلامية. 
-مهمتك هي شرح وتدبر الآية الكريمة التي يرسلها لك المستخدم بالتفصيل والعمق، مع الحفاظ على أسلوب هادئ، تفاؤلي، علمي، ورحيم.
-صيغة الرد يجب أن تكون باللغة العربية الفصحى الأنيقة والجذابة، مقسمة إلى فقرات واضحة ومنسقة بـ Markdown (مثل العناوين العريضة، القوائم المنقطة).
-لا تذكر أي تفاصيل تقنية أو برمجية على الإطلاق. ركز تماماً على القيمة الإيمانية والتفسيرية.`;
+    const historyContext = Array.isArray(history) && history.length > 0
+      ? "\n\nسياق المحادثة السابقة:\n" + history.slice(-4).map((m: any) => `${m.sender === "user" ? "المستخدم" : "المرشد"}: ${m.text}`).join("\n")
+      : "";
+
+    if (contextType === "verse-tafsir" || verseText) {
+      systemPrompt = `أنت مفسر قرآن كريم وعالم إيماني حكيم ورفيق مبسط للعلوم الإسلامية، تعتمد على أمهات كتب التفسير الموثوقة (تفسير ابن كثير، الطبري، السعدي، والجلالين).
+مهمتك هي شرح وتدبر الآية الكريمة التي يرسلها لك المستخدم بالتفصيل والعمق، مع بيان معاني المفردات، سبب النزول إن وُجد، والهدايات التربوية والعملية، بأسلوب هادئ، تفاؤلي، علمي، ورحيم.
+صيغة الرد يجب أن تكون باللغة العربية الفصحى الأنيقة والجذابة، مقسمة إلى فقرات واضحة ومنسقة بـ Markdown (العناوين، النقاط، الاقتباسات).
+لا تذكر أي تفاصيل تقنية أو برمجية على الإطلاق.`;
       
       userPrompt = `الآية المراد تدبرها وشرحها: "${verseText}"
-سؤال المستخدم حولها: ${prompt}`;
+سؤال المستخدم حولها: ${prompt}${historyContext}`;
     } else {
-      // General spiritual/life advice seeker
-      systemPrompt = `أنت مرشد روحي وعالم تفسير قرآني ذو حكمة عالية وأسلوب رحيم ومقنع.
-تلقى المستخدم نصائح أو أسئلة عن مواقف حياتية، أو مشاعر معينة (مثل الحزن، التوتر، الأمل، التوبة، النجاح, الصبر).
-مهمتك الأساسية هي تقديم الاستشارات والردود المبنية بالكامل على القرآن الكريم.
+      systemPrompt = `أنت مرشد روحي وعالم تفسير قرآني ذو حكمة عالية وأسلوب رحيم ومقنع، تعتمد على القرآن الكريم والسنة النبوية الصحيحة وتفاسير العلماء المعتمدين.
+مهمتك الأساسية هي الإجابة عن أسئلة المستخدم الدينية والتدبرية أو تقديم الاستشارات الإيمانية المبنية على القرآن الكريم.
 يجب عليك:
-1. ذكر آية (أو أكثر) مناسبة جداً للحالة التي يشكو منها أو يستفسر عنها المستخدم بوضوح، مع كتابة نص الآية بالرسم القرآني المناسب وتحديد اسم السورة ورقم الآية.
+1. ذكر آية (أو أكثر) مناسبة بدقة لموضوع سؤال المستخدم مع كتابة نص الآية بالرسم القرآني المشكول وتحديد اسم السورة ورقم الآية.
 2. تفسير وتدبر هذه الآيات الكريمة بأسلوب ميسر وعميق يلامس القلب ويريح النفس.
-3. التوجيه العملي الواقعي: كيف يمكن للمستخدم تطبيق هذا التوجيه القرآني في حياته اليومية لتخطي الصعاب أو تحقيق المطلوب.
-4. الرد بأسلوب غاية في الرقي، الفصاحة والرحمة باللغة العربية الفصحى المنسقة بـ Markdown بشكل احترافي.`;
+3. التوجيه العملي الواقعي: خطوات عملية واضحة لتطبيق هذا التوجيه القرآني في الحياة اليومية، مع دعاء قرآني أو نبوي خاشع يناسب المقام.
+4. الرد بأسلوب غاية في الرقي والفصاحة باللغة العربية الفصحى المنسقة بـ Markdown بشكل احترافي.`;
 
-      userPrompt = `حالة المستخدم أو سؤاله: "${prompt}"`;
+      userPrompt = `سؤال المستخدم أو موضوع التدبر: "${prompt}"${historyContext}`;
     }
 
     const response = await generateGeminiContent({
       contents: userPrompt,
       config: {
         systemInstruction: systemPrompt,
-        temperature: 0.7,
       },
     });
 
-    const aiText = response.text || "عذرًا، لم يتمكن المساعد من توليد الاستجابة. يرجى إعادة صياغة السؤال والمحاولة لاحقاً.";
+    const aiText = response.text || generateFallbackResponse();
+    aiResponseCache.set(cacheKey, aiText);
     res.json({ result: aiText });
   } catch (error: any) {
     console.error("Gemini AI guidance error:", error.message);
-    const fallbackResponse = generateFallbackResponse();
-    res.json({ result: fallbackResponse, isFallback: true });
+    res.json({ result: generateFallbackResponse() });
   }
 });
 
-// 3. AI Memorization, Similar Verses (Mutashabihat) finder & Planner Tips (Gemini with Smart Fallbacks)
+// 3. AI Memorization, Similar Verses (Mutashabihat) finder & Planner Tips
 app.post("/api/ai/memorize", async (req, res) => {
-  const { action, query, dayDetails } = req.body;
-
-  // Helper generators for beautiful inline fallbacks
-  const generateMemorizeTipsFallback = (details: any) => {
-    const dayNum = details?.dayNumber || 1;
-    const portion = details?.assignedPortion || "الورد المخصص";
-    const preset = details?.targetPreset || "حفظ حر";
-    return `### 🌟 خطة تدبر وتثبيت مخصصة لليوم [${dayNum}]
-- **الورد المستهدف**: **${portion}**
-- **نوع برنامج الحفظ**: **${preset}**
-
-**💡 التوصيات والوصايا الذهبية العملية للتثبيت اليوم:**
-1. **طريقة حصن تكرار المحفوظ**: اقرأ الآية الأولى بتركيز 5 مرات مع النظر للمصحف، ثم 5 مرات غيباً عن ظهر قلب. كرر مع الآية الثانية، ثم اجمعهما وتلوهما معاً غيباً وهكذا.
-2. **الربط الحسي والمواضع اللفظية**: انتبه لنهايات الآيات وفواتح الآيات التالية؛ ارسم في مخيلتك تسلسل المعاني الإيماني والموضوعي للآيات لتنساب الكلمات في عقلك بيسر وسهولة.
-3. **التكرار في الصلاة (أثبت الطرق)**: صلِّ بوردك الجديد في ركعتي النفيّلة أو صلوات الفرض اليومية، فالقراءة في الصلاة تنقش المحفوظ في ثنايا الذاكرة مدى الحياة.
-
-*(💡 **ملاحظة:** تم إعداد هذه الوصايا العملية من منهاج حفظ وتثبيت القرآن الكريم لتيسير الحفظ والاستظهار).*`;
-  };
-
-  const generateMemorizeSimilarityFallback = (q: string) => {
-    const cleanQ = (q || "").trim();
-    return `### 🔍 مرشد المتشابهات اللفظية والتدبر البصري
-الآية أو الموضع المبحوث عنه: **"${cleanQ || "الموضع المطلوب"}"**
-
-**كيف تفرّق بين المتشابهات لتفادي اللبس أثناء التسميع؟**
-- **تحديد الفروق اللغوية الدقيقة**: يقع اللبس كثيراً في نهايات الآيات والأحرف المضافة (مثال: استخدام الواو أو الفاء مثل "وبالآخرة هم يوقنون" مقابل "وهم بالآخرة هم يوقنون" أو تقديم "عدل" على "شفاعة" وتأخيرها).
-- **وصية التفرد والمواضع الشاكلة**: 
-  1. اربط الحرف الأول من السورة بالحرف المميز في الآية (مثال: لربط موضع معين، حدد قاعدة ذهبية لنفسك تربط السورة بتركيبة الكلمة).
-  2. اكتب المواضع المتشابهة في دفتر خاص وقارن موضعها في صفحة اليمين أو الشمال لتعتاد عينك على بصمتها الجغرافية.
-  3. استمع لهذه المواضع على وجه الخصوص مرتلة بصوت قارئ متقن يركز على مخارج الحروف والوقف والابتداء.
-
-*(💡 **ملاحظة:** تم استخلاص هذه الضوابط التفسيرية لضبط المتشابهات وتفادي اللبس).*`;
-  };
+  const { action, query, verseText, text, dayDetails } = req.body;
+  const effectiveQuery = String(query || verseText || text || "").trim();
 
   if (isGeminiApiKeyMissing()) {
     if (action === "similarity") {
-      return res.json({ result: generateMemorizeSimilarityFallback(query), isFallback: true });
+      return res.json(generateLocalSimilarity(effectiveQuery));
     }
-    return res.json({ result: generateMemorizeTipsFallback(dayDetails), isFallback: true });
+    return res.json({ result: generateLocalMemorizationTips(dayDetails) });
   }
 
   try {
     if (action === "similarity") {
-      const systemPrompt = `أنت عالم متمكن في علم "المتشابهات اللفظية" في القرآن الكريم (Mutashabihat).
-مهمتك هي تلقي آية أو جزء من آية، وتحديد كافة المواضع المتشابهة معها في القرآن الكريم بوضوح تام، وتوجيه الحافظ ذهنياً بكيفية التفريق اللفظي والبصري المعجز بين هذه المواضع لتلافي اللبس والنسيان أثناء الاستظهار والتلاوة.
-نسق إجابتك بلغة عربية فصحى رائعة ومحببة عبر Markdown، دون مقدمات برمجية.`;
+      const cacheKey = `similarity:${effectiveQuery}`;
+      if (aiResponseCache.has(cacheKey)) {
+        return res.json(aiResponseCache.get(cacheKey));
+      }
 
-      const userPrompt = `الآية أو الجزء المتشابه المطلوب تمييزه وشرحه: "${query}"`;
+      const systemPrompt = `أنت عالم متمكن في علم "المتشابهات اللفظية" في القرآن الكريم (Mutashabihat) وضبط الحفظ.
+مهمتك هي تلقي آية أو عبارة قرآنية من المستخدم، وتحديد النص القرآني الصحيح لها، ثم استخراج أبرز الآيات المتشابهة معها لفظياً في سور القرآن الكريم، مع توضيح الفرق الدقيق بين كل موضع، وتقديم قاعدة ذهبية أو رابط ذهني يساعد الحافظ على عدم الخلط بينها.
+يجب إرجاع النتيجة بصيغة JSON حصراً مطابقة للهيكل التالي تماماً دون أي نص خارجي:
+{
+  "originalVerse": "النص القرآني المشكول للآية أو العبارة المبحوث عنها",
+  "similarVerses": [
+    {
+      "text": "نص الآية المتشابهة بالتشكيل الكامل",
+      "surahName": "اسم السورة (مثال: سورة البقرة)",
+      "ayahNumber": 173,
+      "differenceDetails": "شرح الفرق اللفظي الدقيق في الكلمات أو الحروف أو الفواصل",
+      "connectionTip": "ضابط ذهني أو قاعدة ربط ذكية لمنع اللبس عند التسميع"
+    }
+  ]
+}`;
+
+      const userPrompt = `حلل المتشابهات القرآنية للعبارة أو الآية التالية وأرجع النتيجة بصيغة JSON: "${effectiveQuery}"`;
 
       const response = await generateGeminiContent({
         contents: userPrompt,
         config: {
           systemInstruction: systemPrompt,
-          temperature: 0.3,
-        }
+          responseMimeType: "application/json",
+        },
       });
-      return res.json({ result: response.text || "لم يتم العثور على تشابهات حالياً." });
+
+      const rawText = (response.text || "").trim();
+      try {
+        const parsed = JSON.parse(rawText);
+        if (parsed && parsed.originalVerse && Array.isArray(parsed.similarVerses)) {
+          aiResponseCache.set(cacheKey, parsed);
+          return res.json(parsed);
+        }
+      } catch (parseErr) {
+        console.warn("Failed to parse similarity JSON, using structured fallback:", parseErr);
+      }
+      return res.json(generateLocalSimilarity(effectiveQuery));
     } else {
-      // action === "tips"
-      const systemPrompt = `أنت معلم وأخصائي تحفيظ وتثبيت كتاب الله الكريم بطرق ووسائل ذكية، مستقاة من برامج وتجارب حفاظ القرآن العظماء.
-مستنداً على تفاصيل اليوم التدريبية وجدول الحفظ المرفق للمستخدم، قدم له نقاط ذكية وعميية، مهارات تفكير وربط بصري، وتوجيهات عملية تناسب ورده المحدد بالذات لتثبيت الحفظ مع نصائح معنوية ومحفزة.
-استخدم لغة قوية وبليغة وmarkdown منسق بدقة متناهية.`;
+      const cacheKey = `memo-tips:${dayDetails?.dayNumber || 1}:${dayDetails?.targetPreset || ""}:${dayDetails?.assignedPortion || ""}`;
+      if (aiResponseCache.has(cacheKey)) {
+        return res.json({ result: aiResponseCache.get(cacheKey) });
+      }
+
+      const systemPrompt = `أنت معلم وأخصائي تحفيظ وتثبيت كتاب الله الكريم بطرق ووسائل ذكية، مستقاة من برامج وتجارب حفاظ القرآن المهرة.
+مستنداً على تفاصيل اليوم التدريبية وجدول الحفظ المرفق للمستخدم، قدم له نقاطاً ذكية وعملية، ومهارات تفكير وربط بصري ومعنوي، وتوجيهات عملية تناسب ورده المحدد بالذات لتثبيت الحفظ مع نصائح إيمانية محفزة.
+استخدم لغة عربية فصحى بليغة ومنسقة عبر Markdown بدقة متناهية.`;
 
       const userPrompt = `اليوم رقم: ${dayDetails?.dayNumber || 1}
 البرنامج والمدة المحددة: ${dayDetails?.targetPreset || "معدل حر"} في فترة ${dayDetails?.duration || "مفتوحة"}
@@ -736,63 +700,90 @@ app.post("/api/ai/memorize", async (req, res) => {
         contents: userPrompt,
         config: {
           systemInstruction: systemPrompt,
-          temperature: 0.5,
         }
       });
-      return res.json({ result: response.text || "واصل الحفظ والمراجعة بهمة ونشاط!" });
+      const resultText = response.text || generateLocalMemorizationTips(dayDetails);
+      aiResponseCache.set(cacheKey, resultText);
+      return res.json({ result: resultText });
     }
   } catch (error: any) {
     console.error("Gemini AI Memorize action error:", error.message);
     if (action === "similarity") {
-      return res.json({ result: generateMemorizeSimilarityFallback(query), isFallback: true });
+      return res.json(generateLocalSimilarity(effectiveQuery));
     }
-    return res.json({ result: generateMemorizeTipsFallback(dayDetails), isFallback: true });
+    return res.json({ result: generateLocalMemorizationTips(dayDetails) });
   }
 });
 
-// 4. Asbab Al-Nuzul, Spiritual Context and Stories behind verses (Intelligent Companion)
+// 4. Asbab Al-Nuzul, Spiritual Context and Stories behind verses
 app.post("/api/ai/verse-context", async (req, res) => {
-  const { surahName, surahNumber, verseNumber, verseText } = req.body;
+  const { surahName, surahNumber, verseNumber, verseText, tafsir } = req.body;
 
-  const generateVerseContextFallback = () => {
-    return `### 📖 سبب نزول الآية (أسباب النزول)
-الآية المحددة: **سورة ${surahName || surahNumber}، آية رقم ${verseNumber || 1}**
-نص الآية: **"${verseText || "غير متوفر"}"**
+  const cacheKey = `verse-context:${surahNumber}:${verseNumber}`;
+  if (aiResponseCache.has(cacheKey)) {
+    return res.json({ result: aiResponseCache.get(cacheKey) });
+  }
 
-**سياق الآية المباركة وتفسيرها:**
-- تقع هذه الآية الكريمة ضمن السياق التربوي والعقدي المبارك للسورة، حيث تهدف إلى ترسيخ وتثبيت أركان العبودية والتوحيد الخالص لله العلي العظيم، وتذكير المؤمنين بنعمة الاستقامة والتزام طريق الحق والمروءة والاعتدال.
-- يرشد التفسير الموثوق لعلماء التفسير أن للآية عموماً تربوياً جليلاً يحث المسلم على الامتثال لأمر الله عز وجل والصبر والتحمل والتوكل التام في كافة تفاصيل الأمور الدنيوية والروحية.
+  let resolvedTafsir = tafsir || "";
+  if (!resolvedTafsir && surahNumber && verseNumber) {
+    // 1. Try memory cache first
+    const memoryCached = memorySurahCache.get(Number(surahNumber));
+    if (memoryCached?.verses) {
+      const foundVerse = memoryCached.verses.find((v: any) => v.numberInSurah === Number(verseNumber));
+      if (foundVerse?.tafsir) resolvedTafsir = foundVerse.tafsir;
+    }
 
-### ✨ الدروس والعبر الربانية والسبل العملية
-1. **استشعار قرب الله**: المداومة على استشعار معية الله عز وجل في السر والعلن وإحسان العمل والنية.
-2. **الصلاح والالتزام**: تطبيق قيم السورة والتزام منهج الكتاب المبين لتنال السعادة والسكينة والرضوان النفسي.
+    // 2. Try disk cache if not found in memory
+    if (!resolvedTafsir && CACHE_DIR) {
+      try {
+        const cachePath = path.join(CACHE_DIR, `surah_${surahNumber}.json`);
+        if (fs.existsSync(cachePath)) {
+          const cachedData = JSON.parse(fs.readFileSync(cachePath, "utf-8"));
+          const foundVerse = cachedData?.verses?.find((v: any) => v.numberInSurah === Number(verseNumber));
+          if (foundVerse?.tafsir) resolvedTafsir = foundVerse.tafsir;
+        }
+      } catch {
+        // ignore local cache lookup error
+      }
+    }
+  }
 
-*(💡 **ملاحظة:** تم استخلاص هذا السياق التفسيري وأسباب النزول من المصادر التفسيرية المعتمدة لتدبر الآية الكريمة).*`;
-  };
+  const generateVerseContextFallback = () =>
+    generateLocalVerseContext({
+      surahName: String(surahName || surahNumber || ""),
+      surahNumber: Number(surahNumber || 1),
+      verseNumber: Number(verseNumber || 1),
+      verseText: String(verseText || ""),
+      tafsir: resolvedTafsir,
+    });
 
   if (isGeminiApiKeyMissing()) {
-    return res.json({ result: generateVerseContextFallback(), isFallback: true });
+    return res.json({ result: generateVerseContextFallback() });
   }
 
   try {
-    const systemPrompt = `أنت مفسر قرآن قدير ومؤرخ إسلامي موثوق، تمتلك معرفة شاسعة بأسباب النزول المعتمدة ومقاصد الآيات والتفسير اللغوي والعقدي والتربوي.
-مهمتك هي تقديم كشف وافي وجاذب في بضع نقاط منسقة بجمالية وإشراق عبر Markdown حول سبب نزول الآية المباركة التي يرسلها المستخدم أو تبيان سياقها التاريخي والقصصي المباشر، وتوضيح الدروس والعبر التربوية والاجتماعية المستوحاة منها.
-اكتب باللغة العربية الفصحى البليغة فقط دون أسلوب برمجي أو تقني مطلقاً.`;
+    const systemPrompt = `أنت مفسر قرآن قدير ومؤرخ إسلامي موثوق، تمتلك معرفة شاسعة بأسباب النزول المعتمدة (ككتاب أسباب النزول للواحدي ولباب النقول للسيوطي) ومقاصد الآيات والتفسير اللغوي والعقدي والتربوي.
+مهمتك هي تقديم بيان وافٍ ومنسق عبر Markdown حول:
+1. سبب نزول الآية المباركة (إن صحّ فيها سبب نزول مأثور، أو بيان سياقها الموضوعي ومناسبتها لما قبلها إن لم يرد سبب نزول خاص).
+2. المعنى الإجمالي واللطائف البلاغية والتفسيرية في الآية.
+3. الدروس والعبر التربوية والاجتماعية المستوحاة منها.
+اكتب باللغة العربية الفصحى البليغة فقط دون أي مقدمات تقنية.`;
 
     const userPrompt = `السورة: ${surahName || surahNumber} (رقمها: ${surahNumber})، الآية رقم: ${verseNumber}.
-نص الآية الكريمة: "${verseText}"`;
+نص الآية الكريمة: "${verseText}"${resolvedTafsir ? `\nتفسير الجلالين للآية: "${resolvedTafsir}"` : ""}`;
 
     const response = await generateGeminiContent({
       contents: userPrompt,
       config: {
         systemInstruction: systemPrompt,
-        temperature: 0.3,
       }
     });
-    res.json({ result: response.text || "تفكر وتدبر في آيات الله يورث اليقين والهدى." });
+    const resultText = response.text || generateVerseContextFallback();
+    aiResponseCache.set(cacheKey, resultText);
+    res.json({ result: resultText });
   } catch (error: any) {
     console.error("Gemini Verse Context analysis error:", error.message);
-    res.json({ result: generateVerseContextFallback(), isFallback: true });
+    res.json({ result: generateVerseContextFallback() });
   }
 });
 
@@ -804,54 +795,42 @@ app.post("/api/ai/story-ponder", async (req, res) => {
     return res.status(400).json({ error: "اسم القصة مفقود." });
   }
 
-  const generateStoryFallback = () => {
-    return `### 💡 سياق القصة والتدبر الإيماني (العبر والعظات)
-- عنوان القصة: **${storyTitle}**
+  const cacheKey = `story-ponder:${storyTitle}:${prompt || "default"}`;
+  if (aiResponseCache.has(cacheKey)) {
+    return res.json({ result: aiResponseCache.get(cacheKey) });
+  }
 
-**تأملات تربوية وعِبَر مستوحاة:**
-- ترسم هذه القصة القرآنية العظيمة منهجاً متكاملاً للصدق والصبر واليقين بالله عز وجل في مواجهة الشدائد والابتلاءات. إن عاقبة المتقين دائماً ما تنتهي بالنصر والتمكين واليسر بعد العسر.
-- تدعو القصة القارئ إلى استشعار معية الله وتدبيره الخفي في كل شؤون حياته، والصمود بوجه المغريات أو التحديات الدنيوية وثبات المعتقد والقيم.
-
-### ✨ الدروس العميقة والوصايا العملية
-1. **الصبر واليقين**: اليقين بأن الفرج آتٍ وبأن الشدة تزول، وهي أساس كل نجاح وعون رباني.
-2. **العمل الصالح**: التحلي بروح العدل والمروءة، وتفويض الهموم لرب الأرباب الفتيل الأساسي لحصاد العاقبة الحميدة في الدنيا والآخرة.
-
-*(💡 **ملاحظة:** تم استخلاص هذه العبر والدروس الإيمانية من درر القصص القرآني لترسيخ اليقين والأمل).*`;
-  };
+  const generateStoryFallback = () =>
+    generateLocalStoryPonder({ storyTitle, storyNarrative, prompt });
 
   if (isGeminiApiKeyMissing()) {
-    const fallbackText = generateStoryFallback();
-    return res.json({ result: fallbackText, isFallback: true });
+    return res.json({ result: generateStoryFallback() });
   }
 
   try {
     const systemPrompt = `أنت عالم وموجّه تربوي وإيماني متميز متخصص في تفسير وتدبر وتحليل القصص القرآني المذكور في كتاب الله الشريف بأسلوب يلامس القلوب ويسهل تطبيقه عملياً في واقعنا الحديث.
-مهمتك هي تلقي قصة قرآنية معينة (اسم القصة وتفاصيل مقتضبة)، وسؤال أو طلب تدبر من المستخدم حولها، ومحاولة تحرير استجابة وافية، بليغة، تلامس النفوس وتثير الحث والتأمل، مع استنباط الدروس والوصايا العملية والنفسية والاجتماعية بمقاييس العصر اليوم.
-
-يرجى الالتزام بالتعليمات التالية بدقة متناهية:
-1. صِغ الرد بلغة عربية فصحى بالغة الرقي، الأناقة والعمق والجمال المعهود لأهل التفسير المضيء.
-2. نسق الرد المولد بالكامل بأدق الأشكال البصرية المناسبة عبر Markdown (تقسيم بعناوين عريضة، لوحات، رموز معبرة، نقاط واضحة).
-3. اجعل الأسلوب إيجابياً وموقظاً للأمل والسكينة، ومحفزاً على مكارم السلوك الاجتماعي في كافة مجالات الحياة.
-4. تجنب تماماً أي مقدمات تقنية أو إشارات خادم ولا تذكر أية أمور برمجية. ابدأ مباشرة برأس الموضوع.`;
+مهمتك هي تلقي قصة قرآنية معينة (اسم القصة وتفاصيلها)، وسؤال أو طلب تدبر من المستخدم حولها، وتقديم استجابة وافية وبليغة تلامس النفوس، مع استنباط الدروس والوصايا العملية والنفسية والاجتماعية.
+1. صِغ الرد بلغة عربية فصحى بالغة الرقي والأناقة.
+2. نسق الرد عبر Markdown (عناوين، نقاط، اقتباسات قرآنية).
+3. تجنب أي مقدمات تقنية وابدأ مباشرة في الموضوع.`;
 
     const userPrompt = `اسم القصة: "${storyTitle}"
 ملخص القصة: "${storyNarrative}"
-${prompt ? `سؤال أو محاورة المستخدم حول القصة: "${prompt}"` : "أريد تدبراً معمقاً وشاملاً لهذه القصة، مع استنباط الدروس والفوائد والخطوات العملية التي يمكن تفعيلها في حياتي الخاصة والاجتماعية ونصرة الخير."}`;
+${prompt ? `سؤال المستخدم حول القصة: "${prompt}"` : "أريد تدبراً معمقاً وشاملاً لهذه القصة، مع استنباط الدروس والفوائد والخطوات العملية التي يمكن تفعيلها في حياتي اليومية."}`;
 
     const response = await generateGeminiContent({
       contents: userPrompt,
       config: {
         systemInstruction: systemPrompt,
-        temperature: 0.7,
       }
     });
 
-    const resultText = response.text || "لم نتمكن من الحصول على تدبر للقصة حالياً.";
+    const resultText = response.text || generateStoryFallback();
+    aiResponseCache.set(cacheKey, resultText);
     res.json({ result: resultText });
   } catch (error: any) {
-    console.error("Gemini AI Story Ponder error, returning beautiful fallback:", error.message);
-    const fallbackText = generateStoryFallback();
-    res.json({ result: fallbackText, isFallback: true });
+    console.error("Gemini AI Story Ponder error:", error.message);
+    res.json({ result: generateStoryFallback() });
   }
 });
 
@@ -1095,9 +1074,14 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT} with environment ${process.env.NODE_ENV || 'development'}`);
-  });
+  // Only start standalone listener if not running as a Vercel Serverless Function
+  if (!process.env.VERCEL) {
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on port ${PORT} with environment ${process.env.NODE_ENV || 'development'}`);
+    });
+  }
 }
 
 startServer();
+
+export default app;

@@ -643,7 +643,6 @@ export default function StatsPanel() {
   const handleAddQuranLog = (e: React.FormEvent) => {
     e.preventDefault();
     if (logPages <= 0) {
-      alert(t("validationPositivePages"));
       return;
     }
 
@@ -674,15 +673,13 @@ export default function StatsPanel() {
 
   // Clear all reading history
   const handleResetLogs = () => {
-    if (window.confirm(t("confirmResetLogs"))) {
-      const defaultLogs: QuranLogEntry[] = [
-        { id: "log_1", date: getOffsetDateString(-1), surahNumber: 1, surahNameAr: "الفاتحة", surahNameEn: "Al-Fatihah", pagesCount: 1 }
-      ];
-      setReadingLogs(defaultLogs);
-      localStorage.setItem("quran_app_reading_logs", JSON.stringify(defaultLogs));
-      localStorage.removeItem("quran_app_surah_progress");
-      setSurahProgressMap({});
-    }
+    const defaultLogs: QuranLogEntry[] = [
+      { id: "log_1", date: getOffsetDateString(-1), surahNumber: 1, surahNameAr: "الفاتحة", surahNameEn: "Al-Fatihah", pagesCount: 1 }
+    ];
+    setReadingLogs(defaultLogs);
+    localStorage.setItem("quran_app_reading_logs", JSON.stringify(defaultLogs));
+    localStorage.removeItem("quran_app_surah_progress");
+    setSurahProgressMap({});
   };
 
   // Badge determination system to delight and encourage

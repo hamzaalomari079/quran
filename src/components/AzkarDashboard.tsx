@@ -100,9 +100,7 @@ export default function AzkarDashboard() {
   };
 
   const handleResetSubha = () => {
-    if (window.confirm("هل تريد تصفير عداد السبحة الحالي؟")) {
-      setSubhaCount(0);
-    }
+    setSubhaCount(0);
   };
 
   const activeAzkarList = azkar.filter(a => a.category === (activeSubTab === " صباح" ? "صباح" : "مساء"));

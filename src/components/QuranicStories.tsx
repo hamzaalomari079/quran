@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { quranicStories, QuranicStory } from "../data/storiesData";
 import ReactMarkdown from "react-markdown";
+import { generateLocalStoryPonder, isLegacyErrorText } from "../utils/quranAiEngine";
 
 interface QuranicStoriesProps {
   isAr: boolean;
@@ -117,19 +118,28 @@ export default function QuranicStories({
         })
       });
 
-      if (!response.ok) {
-        throw new Error("Failed to consult AI");
+      let data: any = null;
+      try {
+        data = await response.json();
+      } catch {
+        // ignore JSON parse error
       }
-
-      const data = await response.json();
-      const answer = data.result || (isAr ? "حدث خطأ غير متوقع." : "An unexpected error occurred.");
+      const answer =
+        data?.result && !isLegacyErrorText(data.result)
+          ? data.result
+          : generateLocalStoryPonder({
+              storyTitle: selectedStory.titleAr,
+              storyNarrative: selectedStory.narrativeAr,
+              prompt: activePrompt || undefined
+            });
       
       setChatHistory(prev => [...prev, { role: "model", text: answer }]);
     } catch (error) {
-      console.error("Story Ponder error:", error);
-      const fallbackMsg = isAr 
-        ? "⚠️ تعذر الاتصال بمحرك الذكاء الاصطناعي حالياً. يرجى التحقق من اتصال الإنترنت." 
-        : "⚠️ Could not connect to AI engine. Check internet connection.";
+      const fallbackMsg = generateLocalStoryPonder({
+        storyTitle: selectedStory.titleAr,
+        storyNarrative: selectedStory.narrativeAr,
+        prompt: activePrompt || undefined
+      });
       setChatHistory(prev => [...prev, { role: "model", text: fallbackMsg }]);
     } finally {
       setIsPondering(false);

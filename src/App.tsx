@@ -816,13 +816,56 @@ export default function App() {
     setDownloadingStates(prev => ({ ...prev, [surahNum]: true }));
     try {
       // 1. Fetch Surah Data (text & translations)
-      const response = await fetch(`/api/surah/${surahNum}`);
-      if (!response.ok) {
-        throw new Error("api_fail");
+      let data: any = null;
+      try {
+        const response = await fetch(`/api/surah/${surahNum}`);
+        const contentType = response.headers.get("content-type") || "";
+        if (response.ok && contentType.includes("application/json")) {
+          const resJson = await response.json();
+          if (resJson && resJson.verses && resJson.verses.length > 0 && !resJson.error) {
+            data = resJson;
+          }
+        }
+      } catch (e) {
+        console.warn("Primary download API failed, trying direct cloud fallback:", e);
       }
-      const data = await response.json();
-      if (data.error) {
-        throw new Error(data.error);
+
+      if (!data) {
+        const cloudRes = await fetch(
+          `https://api.alquran.cloud/v1/surah/${surahNum}/editions/quran-uthmani,en.sahih,ar.jalalayn`
+        );
+        if (cloudRes.ok) {
+          const cloudJson = await cloudRes.json();
+          if (cloudJson.code === 200 && cloudJson.data && cloudJson.data.length >= 3) {
+            const uthmaniData = cloudJson.data[0];
+            const translationData = cloudJson.data[1];
+            const tafsirData = cloudJson.data[2];
+
+            const verses = uthmaniData.ayahs.map((ayah: any, index: number) => ({
+              numberInSurah: ayah.numberInSurah,
+              text: ayah.text,
+              translation: translationData.ayahs[index]?.text || "",
+              tafsir: tafsirData.ayahs[index]?.text || "",
+              juz: ayah.juz,
+              page: ayah.page,
+              audio: `https://cdn.aladhan.com/sound/quran/alafasy-64/${ayah.number}.mp3`
+            }));
+
+            data = {
+              number: uthmaniData.number,
+              name: uthmaniData.name,
+              englishName: uthmaniData.englishName,
+              englishNameTranslation: uthmaniData.englishNameTranslation,
+              numberOfAyahs: uthmaniData.numberOfAyahs,
+              revelationType: uthmaniData.revelationType,
+              verses: verses
+            };
+          }
+        }
+      }
+
+      if (!data || !data.verses) {
+        throw new Error("api_fail");
       }
 
       // Store in localStorage

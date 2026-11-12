@@ -1,9 +1,25 @@
-
 {
+  "version": 2,
   "rewrites": [
     {
-      "source": "/surah/:number",
-      "destination": "/index.html"
+      "source": "/api/(.*)",
+      "destination": "/api"
+    },
+    {
+      "source": "/surah/(.*)",
+      "destination": "/api"
+    },
+    {
+      "source": "/sitemap.xml",
+      "destination": "/api"
+    },
+    {
+      "source": "/robots.txt",
+      "destination": "/api"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/$1"
     }
   ]
 }

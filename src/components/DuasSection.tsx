@@ -273,7 +273,7 @@ export default function DuasSection() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formTitle.trim() || !formText.trim()) {
-      alert(isAr ? "يرجى كتابة عنوان وتفاصيل نص الدعاء أولاً." : "Please provide a title and text details.");
+      triggerToast(isAr ? "يرجى كتابة عنوان وتفاصيل نص الدعاء أولاً." : "Please provide a title and text details.");
       return;
     }
 
@@ -328,17 +328,15 @@ export default function DuasSection() {
   };
 
   const handleDelete = (id: string) => {
-    if (window.confirm(isAr ? "هل أنت متأكد من رغبتك في حذف هذا الدعاء الخاص نهائياً؟" : "Are you sure you want to delete this custom supplication permanently?")) {
-      const updated = customDuas.filter(dua => dua.id !== id);
-      saveCustomDuasToStorage(updated);
-      
-      // Also remove from favorites if favorited
-      if (favorites.includes(id)) {
-        saveFavoritesToStorage(favorites.filter(favId => favId !== id));
-      }
-      
-      triggerToast(isAr ? "تم حذف الدعاء بنجاح 🗑️" : "Supplication removed successfully 🗑️");
+    const updated = customDuas.filter(dua => dua.id !== id);
+    saveCustomDuasToStorage(updated);
+    
+    // Also remove from favorites if favorited
+    if (favorites.includes(id)) {
+      saveFavoritesToStorage(favorites.filter(favId => favId !== id));
     }
+    
+    triggerToast(isAr ? "تم حذف الدعاء بنجاح 🗑️" : "Supplication removed successfully 🗑️");
   };
 
   // Filter and Search Logic

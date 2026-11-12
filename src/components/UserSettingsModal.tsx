@@ -152,7 +152,6 @@ export default function UserSettingsModal({
     if (!("Notification" in window)) {
       const speech = isAr ? "نأسف، إشعارات النظام غير مدعومة في جهازك" : "Sorry, system notifications are not supported on your device";
       safeSpeak(speech, isAr ? "ar-SA" : "en-US");
-      alert(speech);
       return;
     }
 
@@ -184,13 +183,11 @@ export default function UserSettingsModal({
           ? "تم رفض الإذن. يرجى تفعيل إشعارات الموقع من إعدادات المتصفح." 
           : "Permission denied. Please activate site notifications in browser settings.";
         safeSpeak(speech, isAr ? "ar-SA" : "en-US");
-        alert(speech);
       }
     } catch (err) {
       console.warn("Test notification failed:", err);
       const speech = isAr ? "حدثت مشكلة أثناء محاولة إرسال إشعار" : "An error occurred while launching alert";
       safeSpeak(speech, isAr ? "ar-SA" : "en-US");
-      alert(speech);
     }
   };
 

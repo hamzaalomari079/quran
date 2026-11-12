@@ -47,12 +47,33 @@ import {StrictMode} from 'react';
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
+import { isLegacyErrorText } from './utils/quranAiEngine';
 
-// Register PWA Service Worker (only if not loaded over file:// protocol)
+// Automatically scrub any legacy API key error messages from localStorage on app boot
+try {
+  const historyRaw = window.localStorage.getItem('quran_ai_chat_history');
+  if (historyRaw) {
+    const parsed = JSON.parse(historyRaw);
+    if (Array.isArray(parsed)) {
+      const cleaned = parsed.filter(
+        (m: any) => m && typeof m.text === 'string' && !isLegacyErrorText(m.text)
+      );
+      if (cleaned.length !== parsed.length) {
+        window.localStorage.setItem('quran_ai_chat_history', JSON.stringify(cleaned));
+      }
+    }
+  }
+} catch {
+  // Ignore storage parsing errors
+}
+
+// Register PWA Service Worker from root scope and trigger immediate update
 if ('serviceWorker' in navigator && window.location.protocol !== 'file:') {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js')
-      .then((reg) => console.log('ServiceWorker registered successfully with scope: ', reg.scope))
+    navigator.serviceWorker.register('/sw.js')
+      .then((reg) => {
+        reg.update().catch(() => {});
+      })
       .catch((err) => console.error('ServiceWorker registration failed: ', err));
   });
 }

@@ -3,6 +3,7 @@ import { Sparkles, Calendar, CheckSquare, ChevronRight, HelpCircle, BookOpen, Cl
 import ReactMarkdown from "react-markdown";
 import { surahList } from "../data/surahData";
 import { recitersList } from "../types";
+import { generateLocalMemorizationTips, generateLocalSimilarity, isLegacyErrorText } from "../utils/quranAiEngine";
 
 interface PlanDay {
   dayNumber: number;
@@ -117,18 +118,57 @@ export default function AIMemorizationGateway({ currentLang = "ar" }: { currentL
           }
         }
 
-        const response = await fetch(`/api/surah/${tutorSurahNum}`);
-        if (!response.ok) {
+        let versesResult: any[] | null = null;
+
+        try {
+          const response = await fetch(`/api/surah/${tutorSurahNum}`);
+          const contentType = response.headers.get("content-type") || "";
+          if (response.ok && contentType.includes("application/json")) {
+            const data = await response.json();
+            if (data && data.verses && data.verses.length > 0 && !data.error) {
+              versesResult = data.verses;
+            }
+          }
+        } catch (serverErr) {
+          console.warn("Primary tutor /api/surah failed, trying cloud fallback:", serverErr);
+        }
+
+        if (!versesResult) {
+          try {
+            const cloudRes = await fetch(
+              `https://api.alquran.cloud/v1/surah/${tutorSurahNum}/editions/quran-uthmani,en.sahih,ar.jalalayn`
+            );
+            if (cloudRes.ok) {
+              const cloudJson = await cloudRes.json();
+              if (cloudJson.code === 200 && cloudJson.data && cloudJson.data.length >= 3) {
+                const uthmaniData = cloudJson.data[0];
+                const translationData = cloudJson.data[1];
+                const tafsirData = cloudJson.data[2];
+
+                versesResult = uthmaniData.ayahs.map((ayah: any, index: number) => ({
+                  numberInSurah: ayah.numberInSurah,
+                  text: ayah.text,
+                  translation: translationData.ayahs[index]?.text || "",
+                  tafsir: tafsirData.ayahs[index]?.text || "",
+                  juz: ayah.juz,
+                  page: ayah.page,
+                  audio: `https://cdn.aladhan.com/sound/quran/alafasy-64/${ayah.number}.mp3`
+                }));
+              }
+            }
+          } catch (cloudErr) {
+            console.warn("Direct cloud fallback failed:", cloudErr);
+          }
+        }
+
+        if (!versesResult || versesResult.length === 0) {
           throw new Error(isAr ? "فشل تحميل بيانات السورة من الخادم." : "Failed to load Surah from server.");
         }
-        const data = await response.json();
-        if (data.error) {
-          throw new Error(data.error);
-        }
+
         if (active) {
-          setTutorVerses(data.verses);
+          setTutorVerses(versesResult);
           setTutorStartAyah(1);
-          setTutorEndAyah(data.verses.length);
+          setTutorEndAyah(versesResult.length);
         }
       } catch (err: any) {
         if (active) {
@@ -414,17 +454,28 @@ export default function AIMemorizationGateway({ currentLang = "ar" }: { currentL
         // Fallback
       }
 
-      if (!response.ok) {
-        throw new Error(data?.error || "HTTP error " + response.status);
+      const dayDetailsPayload = {
+        dayNumber: day.dayNumber,
+        targetPreset: selectedTarget,
+        duration: selectedDuration,
+        customPrompt: customTarget,
+        assignedPortion: day.targetVerses
+      };
+      if (data?.result && !isLegacyErrorText(data.result)) {
+        setActiveTipsContent(data.result);
+      } else {
+        setActiveTipsContent(generateLocalMemorizationTips(dayDetailsPayload));
       }
-
-      setActiveTipsContent(data?.result || "عذراً، الخدمة تحت الضغط الآن.");
     } catch (err: any) {
-      console.error(err);
-      setActiveTipsContent(err.message || (isAr 
-        ? "حدث خطأ أثناء الاتصال بمُعلم الحفظ الذكي. يرجى التحقق من اتصالك بالإنترنت والمحاولة مرة أخرى."
-        : "Failed to communicate with your AI Tutor. Please check internet connection and try again."
-      ));
+      setActiveTipsContent(
+        generateLocalMemorizationTips({
+          dayNumber: day.dayNumber,
+          targetPreset: selectedTarget,
+          duration: selectedDuration,
+          customPrompt: customTarget,
+          assignedPortion: day.targetVerses
+        })
+      );
     } finally {
       setLoadingTips(false);
     }
@@ -432,17 +483,15 @@ export default function AIMemorizationGateway({ currentLang = "ar" }: { currentL
 
   // Clear current saved plan
   const handleResetPlan = () => {
-    if (window.confirm(isAr ? "هل أنت متأكد من رغبتك في إعادة تعيين وحذف الخطة الحالية؟" : "Are you sure you want to reset current plan?")) {
-      setActivePlan([]);
-      setCompletedDays([]);
-      setSelectedDayForTips(null);
-      setActiveTipsContent("");
-      try {
-        localStorage.removeItem("quran_memo_plan");
-        localStorage.removeItem("quran_memo_completed");
-      } catch (err) {
-        console.warn(err);
-      }
+    setActivePlan([]);
+    setCompletedDays([]);
+    setSelectedDayForTips(null);
+    setActiveTipsContent("");
+    try {
+      localStorage.removeItem("quran_memo_plan");
+      localStorage.removeItem("quran_memo_completed");
+    } catch (err) {
+      console.warn(err);
     }
   };
 
@@ -472,25 +521,13 @@ export default function AIMemorizationGateway({ currentLang = "ar" }: { currentL
         // Fallback
       }
 
-      if (!response.ok) {
-        throw new Error(data?.error || "Failed to receive valid response");
+      if (data && data.originalVerse && Array.isArray(data.similarVerses)) {
+        setSimilarityResult(data);
+      } else {
+        setSimilarityResult(generateLocalSimilarity(similarityInput));
       }
-
-      if (data && data.error) {
-        throw new Error(data.error);
-      }
-
-      if (!data || !data.originalVerse) {
-        throw new Error(isAr ? "لم نتمكن من تحليل المتشابهات حالياً، يرجى المحاولة لاحقاً." : "Could not identify similarity matches. Please try again later.");
-      }
-
-      setSimilarityResult(data);
     } catch (err: any) {
-      console.error(err);
-      setSimilarityError(err.message || (isAr
-        ? "تعذر استدعاء مكتشف المتشابهات الفوري. يرجى محاولة صياغة الآية بشكل أكثر وضوحًا أو كتابة عبارة قرآنية صحيحة."
-        : "Failed to locate similar verses. Please check your spelling and try again."
-      ));
+      setSimilarityResult(generateLocalSimilarity(similarityInput));
     } finally {
       setLoadingSimilarity(false);
     }
