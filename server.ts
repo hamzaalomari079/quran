@@ -942,146 +942,187 @@ app.get("/robots.txt", (req, res) => {
   res.status(404).header("Content-Type", "text/plain").send("Robots.txt not found");
 });
 
-// Setup Vite Dev Server / Static Assets
-async function startServer() {
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), "dist");
-    
-    // Serve actual static assets directly (css, js, images, icons, manifest etc.)
-    // EXCEPT index.html itself which we want to serve dynamically
-    app.use(express.static(distPath, { index: false }));
-    
-    app.get("*", (req, res) => {
-      // If requesting a specific file that is not HTML, let static middleware or direct path serve it
-      if (req.path !== "/" && req.path !== "/index.html") {
-        const fileLoc = path.join(distPath, req.path);
-        if (fs.existsSync(fileLoc)) {
-          return res.sendFile(fileLoc);
-        }
-      }
+// Setup Vite Dev Server / Static Assets & Serverless Handlers
+const isVercel = Boolean(process.env.VERCEL);
+const isProd = isVercel || process.env.NODE_ENV === "production";
 
-      // Serve index.html dynamically to swap SEO headers
+let cachedIndexHtml: string | null = null;
+
+function getBaseIndexHtml(distPath: string): string {
+  if (cachedIndexHtml) return cachedIndexHtml;
+
+  const candidatePaths = [
+    path.join(distPath, "index.html"),
+    path.join(process.cwd(), "dist", "index.html"),
+    path.join(__dirname, "dist", "index.html"),
+    path.join(__dirname, "../dist", "index.html"),
+    path.join(process.cwd(), "index.html"),
+    path.join(__dirname, "index.html")
+  ];
+
+  for (const p of candidatePaths) {
+    if (fs.existsSync(p)) {
       try {
-        const indexPath = path.join(distPath, "index.html");
-        let html = fs.readFileSync(indexPath, "utf-8");
-        
-        const host = req.get("host") || "qurany.xyz";
-        const protocol = req.headers["x-forwarded-proto"] || req.protocol || "https";
-        const currentUrl = `${protocol}://${host}${req.originalUrl}`;
-        const baseDomain = `${protocol}://${host}`;
-
-        // Parse current path instead of legacy query parameters to determine screen focus
-        let sNum = NaN;
-        let tabQuery: string | null = null;
-
-        const pathParts = req.path.split("/").filter(Boolean); // e.g. ["surah", "12"] or ["azkar"]
-        if (pathParts[0] === "surah" && pathParts[1]) {
-          sNum = parseInt(pathParts[1]);
-        } else if (pathParts[0]) {
-          const validTabs = ["index", "ai", "azkar", "bookmarks", "hisn", "stats", "donation", "memo", "stories", "downloads", "duas"];
-          if (validTabs.includes(pathParts[0].toLowerCase())) {
-            tabQuery = pathParts[0].toLowerCase();
-          }
+        const content = fs.readFileSync(p, "utf-8");
+        if (content && (content.includes("id=\"root\"") || content.includes("id='root'"))) {
+          cachedIndexHtml = content;
+          return content;
         }
-
-        let title = "قرآني (Qurany) | المصحف الإلكتروني وتلاوة وتدبر ذكي";
-        let desc = "موقع قرآني: مصحف إلكتروني شامل مخصص لقراءة وتلاوة وتدبر القرآن الكريم ببراعة وسلاسة. يحتوي على تلاوات عذبة بأصوات جليلة، تفسير وتراجم سور وآيات، محرك بحث متقدم، ومساعد ذكي تفاعلي.";
-        let keywords = "قرآني, قراني, قرآن, القرآن الكريم, مصحف, المصحف الإلكتروني, تلاوات خاشعة, قراء مشاهير, تفسير القرآن, تدبر القرآن, أهداف القراءة, حفظ القرآن, ذكاء اصطناعي إسلامي, الورد اليومي, أذكار, طمأنينة, qurany, quran, holy quran";
-        
-        if (!isNaN(sNum) && sNum >= 1 && sNum <= 114) {
-          const surah = surahList.find(s => s.number === sNum);
-          if (surah) {
-            const rType = surah.revelationType === "Meccan" || surah.arabicType === "مكية" ? "مكية" : "مدنية";
-            title = `سورة ${surah.name} مكتوبة كاملة بالرسم العثماني مع التفسير والترجمة | قرآني`;
-            desc = `اقرأ وتدبر سورة ${surah.name} الكريمة كاملة بالرسم العثماني الشقيق (${surah.numberOfAyahs} آية، نزلت في ${rType})، مع تفسير الجلالين والترجمة الإنجليزية الفورية والاستماع العذب لأشهر القراء على منصة قرآني الذكية.`;
-            keywords = `سورة ${surah.name}, تفسير سورة ${surah.name}, سورة ${surah.name} مكتوبة, قراءة سورة ${surah.name}, سورة ${surah.name} بالتشكيل, القرآن الكريم, تفسير الجلالين, قرآني`;
-          }
-        } else if (tabQuery) {
-          const tabStr = String(tabQuery).toLowerCase();
-          if (tabStr === "ai") {
-            title = "المساعد القرآني والتدبر الذكي بالذكاء الاصطناعي | قرآني";
-            desc = "تواصل مباشرة مع المساعد الذكي التفاعلي المتخصص بالقرآن الكريم لتفسير الآيات، الإجابة عن التساؤلات الشرعية والأخلاقية، والتدبر القرآني بأسلوب سهل ومميز.";
-            keywords = "المساعد الذكي, ذكاء اصطناعي إسلامي, قوقل جيميناي, تدبر ذكي, تفسير ذكي للقرآن, قرآني";
-          } else if (tabStr === "azkar") {
-            title = "أذكار الصباح والمساء والرقية الشرعية | قرآني";
-            desc = "حصن نفسك برياض الجنة مع أذكار الصباح، أذكار المساء، أذكار الاستيقاظ والرقية الشرعية الشاملة تلاوةً وحفظاً بقالب مريح للعين.";
-            keywords = "أذكار الصباح, أذكار المساء, الرقية الشرعية, أذكار النوم, طمأنينة, حصن نفسك, قرآني";
-          } else if (tabStr === "hisn") {
-            title = "حصن المسلم كاملاً من الأذكار والأدعية اليومية | قرآني";
-            desc = "تصفح كتاب حصن المسلم كاملاً مقسم ومصنف بحسب الاحتياج اليومي في الحياة والعبادة مع ميزات تتبع وحفظ مرنة وسهلة.";
-            keywords = "حصن المسلم, أدعية حصن المسلم, كتاب حصن المسلم, أذكار اليوم والليلة, قرآني";
-          } else if (tabStr === "duas") {
-            title = "الأدعية القرآنية والنبوية المأثورة المسموعة والمكتوبة | قرآني";
-            desc = "موسوعة شاملة من الأدعية النبوية والقرآنية المباركة، مرتبة ومتاحة بنصوص واضحة وصوت عذب لتسهيل الحفظ والدعاء.";
-            keywords = "أدعية قرآنية, أدعية نبوية, دعاء من القرآن, الأدعية المأثورة, قرآني";
-          } else if (tabStr === "memo") {
-            title = "برنامج حفظ القرآن الكريم والورد اليومي الذكي | قرآني";
-            desc = "ابدأ خطتك في حفظ كتاب الله ومتابعة وردك اليومي بسهولة وتثبيت الحفظ عبر التكرار والتنظيم الزمني الشخصي المبهر.";
-            keywords = "حفظ القرآن, الورد اليومي, الحفظ الذكي, تكرار الآيات, جدول حفظ القرآن, قرآني";
-          } else if (tabStr === "stories") {
-            title = "روائع القصص والتدبر القرآني والقصص النبوي الشريف | قرآني";
-            desc = "اقرأ وتدبر روائع القصص القرآنية وقصص الأنبياء، معبرة بذكاء ومصاغة بأسلوب جذاب وبليغ يربط الماضي بالحاضر.";
-            keywords = "قصص القرآن, قصص الأنبياء, تدبر القصص, العبر القرآنية, قرآني";
-          } else if (tabStr === "stats") {
-            title = "إحصائيات القراءة والختمات والتقارير القرآنية الشخصية | قرآني";
-            desc = "قس وقيم مستوى متابعتك وتفاعلك مع القرآن الكريم، تتبع أورادك وساعات قراءتك ومخطط الختمات الزمنية الذكي.";
-            keywords = "إحصائيات القراءة, ختم القرآن الكريم, تقرير التلاوة, الورد الذكي, قرآني";
-          } else if (tabStr === "donation") {
-            title = "صدقة جارية كبرى ودعم مشروع منصة قرآني | قرآني";
-            desc = "ساهم معنا لتكون شريكاً في الأجر والثواب بصدقة جارية وعلم ينتفع به لدعم تطوير واستمرار منصة قرآني لكل مسلم حول العالم.";
-            keywords = "صدقة جارية, دعم منصة قرآني, تبرع للمشاريع الإسلامية, قرآني";
-          }
-        }
-
-        // Apply HTML optimizations on the fly
-        // Replace Title element
-        html = html.replace(/<title>[^<]*<\/title>/g, `<title>${title}</title>`);
-        
-        // Replace Description meta tag
-        html = html.replace(/<meta\s+name="description"\s+content="[^"]*"\s*\/?>/gi, `<meta name="description" content="${desc}" />`);
-        
-        // Replace Keywords tag
-        html = html.replace(/<meta\s+name="keywords"\s+content="[^"]*"\s*\/?>/gi, `<meta name="keywords" content="${keywords}" />`);
-        
-        // Replace Canonical links dynamically using current domain
-        html = html.replace(/<link\s+rel="canonical"\s+href="[^"]*"\s*\/?>/gi, `<link rel="canonical" href="${currentUrl}" />`);
-        
-        // Replace Open Graph metadata to look gorgeous on socials with current domain
-        html = html.replace(/<meta\s+property="og:url"\s+content="[^"]*"\s*\/?>/gi, `<meta property="og:url" content="${currentUrl}" />`);
-        html = html.replace(/<meta\s+property="og:title"\s+content="[^"]*"\s*\/?>/gi, `<meta property="og:title" content="${title}" />`);
-        html = html.replace(/<meta\s+property="og:description"\s+content="[^"]*"\s*\/?>/gi, `<meta property="og:description" content="${desc}" />`);
-        
-        // Replace Twitter SEO tags
-        html = html.replace(/<meta\s+name="twitter:url"\s+content="[^"]*"\s*\/?>/gi, `<meta name="twitter:url" content="${currentUrl}" />`);
-        html = html.replace(/<meta\s+name="twitter:title"\s+content="[^"]*"\s*\/?>/gi, `<meta name="twitter:title" content="${title}" />`);
-        html = html.replace(/<meta\s+name="twitter:description"\s+content="[^"]*"\s*\/?>/gi, `<meta name="twitter:description" content="${desc}" />`);
-
-        // Replace any hardcoded placeholder domains inside structured markup / schemas
-        html = html.replaceAll("https://service-22577922415.europe-west2.run.app/", `${baseDomain}/`);
-        html = html.replaceAll("https://service-22577922415.europe-west2.run.app", baseDomain);
-
-        res.send(html);
-      } catch (err) {
-        console.error("Error serving and compiling dynamic SEO tags:", err);
-        res.sendFile(path.join(distPath, "index.html"));
+      } catch (err: any) {
+        console.warn(`Could not read index template from ${p}:`, err.message);
       }
-    });
+    }
   }
 
-  // Only start standalone listener if not running as a Vercel Serverless Function
-  if (!process.env.VERCEL) {
-    app.listen(PORT, "0.0.0.0", () => {
-      console.log(`Server running on port ${PORT} with environment ${process.env.NODE_ENV || 'development'}`);
-    });
-  }
+  // Self-contained fallback that boots the React app gracefully
+  return `<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>قرآني (Qurany) | المصحف الإلكتروني وتلاوة وتدبر ذكي</title>
+    <meta name="description" content="موقع قرآني: مصحف إلكتروني شامل مخصص لقراءة وتلاوة وتدبر القرآن الكريم ببراعة وسلاسة." />
+    <link rel="canonical" href="https://qurany.xyz/" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/png" href="/icon.png" />
+  </head>
+  <body>
+    <div id="root">
+      <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0c0a09;color:#f59e0b;font-family:sans-serif;font-size:1.25rem;">
+        جاري فتح المصحف الشريف...
+      </div>
+    </div>
+  </body>
+</html>`;
 }
 
-startServer();
+function mountProductionHandlers() {
+  const distPath = path.join(process.cwd(), "dist");
+
+  // Serve static assets directly from dist/
+  app.use(express.static(distPath, { index: false }));
+
+  app.get("*", (req, res) => {
+    // If requesting a specific static file that exists, serve it directly
+    if (req.path !== "/" && req.path !== "/index.html") {
+      const fileLoc = path.join(distPath, req.path);
+      if (fs.existsSync(fileLoc)) {
+        return res.sendFile(fileLoc);
+      }
+    }
+
+    try {
+      let html = getBaseIndexHtml(distPath);
+
+      const host = req.get("host") || "qurany.xyz";
+      const protocol = req.headers["x-forwarded-proto"] || req.protocol || "https";
+      const currentUrl = `${protocol}://${host}${req.originalUrl}`;
+      const baseDomain = `${protocol}://${host}`;
+
+      let sNum = NaN;
+      let tabQuery: string | null = null;
+
+      const pathParts = req.path.split("/").filter(Boolean);
+      if (pathParts[0] === "surah" && pathParts[1]) {
+        sNum = parseInt(pathParts[1]);
+      } else if (pathParts[0]) {
+        const validTabs = ["index", "ai", "azkar", "bookmarks", "hisn", "stats", "donation", "memo", "stories", "downloads", "duas"];
+        if (validTabs.includes(pathParts[0].toLowerCase())) {
+          tabQuery = pathParts[0].toLowerCase();
+        }
+      }
+
+      let title = "قرآني (Qurany) | المصحف الإلكتروني وتلاوة وتدبر ذكي";
+      let desc = "موقع قرآني: مصحف إلكتروني شامل مخصص لقراءة وتلاوة وتدبر القرآن الكريم ببراعة وسلاسة. يحتوي على تلاوات عذبة بأصوات جليلة، تفسير وتراجم سور وآيات، محرك بحث متقدم، ومساعد ذكي تفاعلي.";
+      let keywords = "قرآني, قراني, قرآن, القرآن الكريم, مصحف, المصحف الإلكتروني, تلاوات خاشعة, قراء مشاهير, تفسير القرآن, تدبر القرآن, أهداف القراءة, حفظ القرآن, ذكاء اصطناعي إسلامي, الورد اليومي, أذكار, طمأنينة, qurany, quran, holy quran";
+
+      if (!isNaN(sNum) && sNum >= 1 && sNum <= 114) {
+        const surah = surahList.find(s => s.number === sNum);
+        if (surah) {
+          const rType = surah.revelationType === "Meccan" || surah.arabicType === "مكية" ? "مكية" : "مدنية";
+          title = `سورة ${surah.name} مكتوبة كاملة بالرسم العثماني مع التفسير والترجمة | قرآني`;
+          desc = `اقرأ وتدبر سورة ${surah.name} الكريمة كاملة بالرسم العثماني الشقيق (${surah.numberOfAyahs} آية، نزلت في ${rType})، مع تفسير الجلالين والترجمة الإنجليزية الفورية والاستماع العذب لأشهر القراء على منصة قرآني الذكية.`;
+          keywords = `سورة ${surah.name}, تفسير سورة ${surah.name}, سورة ${surah.name} مكتوبة, قراءة سورة ${surah.name}, سورة ${surah.name} بالتشكيل, القرآن الكريم, تفسير الجلالين, قرآني`;
+        }
+      } else if (tabQuery) {
+        const tabStr = String(tabQuery).toLowerCase();
+        if (tabStr === "ai") {
+          title = "المساعد القرآني والتدبر الذكي بالذكاء الاصطناعي | قرآني";
+          desc = "تواصل مباشرة مع المساعد الذكي التفاعلي المتخصص بالقرآن الكريم لتفسير الآيات، الإجابة عن التساؤلات الشرعية والأخلاقية، والتدبر القرآني بأسلوب سهل ومميز.";
+          keywords = "المساعد الذكي, ذكاء اصطناعي إسلامي, قوقل جيميناي, تدبر ذكي, تفسير ذكي للقرآن, قرآني";
+        } else if (tabStr === "azkar") {
+          title = "أذكار الصباح والمساء والرقية الشرعية | قرآني";
+          desc = "حصن نفسك برياض الجنة مع أذكار الصباح، أذكار المساء، أذكار الاستيقاظ والرقية الشرعية الشاملة تلاوةً وحفظاً بقالب مريح للعين.";
+          keywords = "أذكار الصباح, أذكار المساء, الرقية الشرعية, أذكار النوم, طمأنينة, حصن نفسك, قرآني";
+        } else if (tabStr === "hisn") {
+          title = "حصن المسلم كاملاً من الأذكار والأدعية اليومية | قرآني";
+          desc = "تصفح كتاب حصن المسلم كاملاً مقسم ومصنف بحسب الاحتياج اليومي في الحياة والعبادة مع ميزات تتبع وحفظ مرنة وسهلة.";
+          keywords = "حصن المسلم, أدعية حصن المسلم, كتاب حصن المسلم, أذكار اليوم والليلة, قرآني";
+        } else if (tabStr === "duas") {
+          title = "الأدعية القرآنية والنبوية المأثورة المسموعة والمكتوبة | قرآني";
+          desc = "موسوعة شاملة من الأدعية النبوية والقرآنية المباركة، مرتبة ومتاحة بنصوص واضحة وصوت عذب لتسهيل الحفظ والدعاء.";
+          keywords = "أدعية قرآنية, أدعية نبوية, دعاء من القرآن, الأدعية المأثورة, قرآني";
+        } else if (tabStr === "memo") {
+          title = "برنامج حفظ القرآن الكريم والورد اليومي الذكي | قرآني";
+          desc = "ابدأ خطتك في حفظ كتاب الله ومتابعة وردك اليومي بسهولة وتثبيت الحفظ عبر التكرار والتنظيم الزمني الشخصي المبهر.";
+          keywords = "حفظ القرآن, الورد اليومي, الحفظ الذكي, تكرار الآيات, جدول حفظ القرآن, قرآني";
+        } else if (tabStr === "stories") {
+          title = "روائع القصص والتدبر القرآني والقصص النبوي الشريف | قرآني";
+          desc = "اقرأ وتدبر روائع القصص القرآنية وقصص الأنبياء، معبرة بذكاء ومصاغة بأسلوب جذاب وبليغ يربط الماضي بالحاضر.";
+          keywords = "قصص القرآن, قصص الأنبياء, تدبر القصص, العبر القرآنية, قرآني";
+        } else if (tabStr === "stats") {
+          title = "إحصائيات القراءة والختمات والتقارير القرآنية الشخصية | قرآني";
+          desc = "قس وقيم مستوى متابعتك وتفاعلك مع القرآن الكريم، تتبع أورادك وساعات قراءتك ومخطط الختمات الزمنية الذكي.";
+          keywords = "إحصائيات القراءة, ختم القرآن الكريم, تقرير التلاوة, الورد الذكي, قرآني";
+        } else if (tabStr === "donation") {
+          title = "صدقة جارية كبرى ودعم مشروع منصة قرآني | قرآني";
+          desc = "ساهم معنا لتكون شريكاً في الأجر والثواب بصدقة جارية وعلم ينتفع به لدعم تطوير واستمرار منصة قرآني لكل مسلم حول العالم.";
+          keywords = "صدقة جارية, دعم منصة قرآني, تبرع للمشاريع الإسلامية, قرآني";
+        }
+      }
+
+      // Apply dynamic SEO tag transformations
+      html = html.replace(/<title>[^<]*<\/title>/g, `<title>${title}</title>`);
+      html = html.replace(/<meta\s+name="description"\s+content="[^"]*"\s*\/?>/gi, `<meta name="description" content="${desc}" />`);
+      html = html.replace(/<meta\s+name="keywords"\s+content="[^"]*"\s*\/?>/gi, `<meta name="keywords" content="${keywords}" />`);
+      html = html.replace(/<link\s+rel="canonical"\s+href="[^"]*"\s*\/?>/gi, `<link rel="canonical" href="${currentUrl}" />`);
+      html = html.replace(/<meta\s+property="og:url"\s+content="[^"]*"\s*\/?>/gi, `<meta property="og:url" content="${currentUrl}" />`);
+      html = html.replace(/<meta\s+property="og:title"\s+content="[^"]*"\s*\/?>/gi, `<meta property="og:title" content="${title}" />`);
+      html = html.replace(/<meta\s+property="og:description"\s+content="[^"]*"\s*\/?>/gi, `<meta property="og:description" content="${desc}" />`);
+      html = html.replace(/<meta\s+name="twitter:url"\s+content="[^"]*"\s*\/?>/gi, `<meta name="twitter:url" content="${currentUrl}" />`);
+      html = html.replace(/<meta\s+name="twitter:title"\s+content="[^"]*"\s*\/?>/gi, `<meta name="twitter:title" content="${title}" />`);
+      html = html.replace(/<meta\s+name="twitter:description"\s+content="[^"]*"\s*\/?>/gi, `<meta name="twitter:description" content="${desc}" />`);
+      html = html.replaceAll("https://service-22577922415.europe-west2.run.app/", `${baseDomain}/`);
+      html = html.replaceAll("https://service-22577922415.europe-west2.run.app", baseDomain);
+
+      return res.status(200).send(html);
+    } catch (err: any) {
+      console.error("Error serving and compiling dynamic SEO tags:", err?.message || err);
+      return res.status(200).send(getBaseIndexHtml(distPath));
+    }
+  });
+}
+
+// In production / Vercel, mount production routes immediately
+if (isProd) {
+  mountProductionHandlers();
+} else {
+  // In development, initialize Vite middleware
+  createViteServer({
+    server: { middlewareMode: true },
+    appType: "spa",
+  }).then(vite => {
+    app.use(vite.middlewares);
+  }).catch(err => {
+    console.error("Failed to start Vite middleware in dev:", err);
+  });
+}
+
+// Start standalone HTTP listener only when NOT running as a serverless function (Vercel)
+if (!isVercel) {
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Server running on port ${PORT} with environment ${process.env.NODE_ENV || 'development'}`);
+  });
+}
 
 export default app;
