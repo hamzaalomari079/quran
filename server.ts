@@ -964,13 +964,11 @@ let cachedIndexHtml: string | null = null;
 function getBaseIndexHtml(distPath: string): string {
   if (cachedIndexHtml) return cachedIndexHtml;
 
+  // Only use the compiled Vite output, never a development template.
+  // __dirname is not available in native ESM serverless functions.
   const candidatePaths = [
     path.join(distPath, "index.html"),
-    path.join(process.cwd(), "dist", "index.html"),
-    path.join(__dirname, "dist", "index.html"),
-    path.join(__dirname, "../dist", "index.html"),
-    path.join(process.cwd(), "index.html"),
-    path.join(__dirname, "index.html")
+    path.join(process.cwd(), "dist", "index.html")
   ];
 
   for (const p of candidatePaths) {
@@ -987,26 +985,9 @@ function getBaseIndexHtml(distPath: string): string {
     }
   }
 
-  // Self-contained fallback that boots the React app gracefully
-  return `<!doctype html>
-<html lang="ar" dir="rtl">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>قرآني (Qurany) | المصحف الإلكتروني وتلاوة وتدبر ذكي</title>
-    <meta name="description" content="موقع قرآني: مصحف إلكتروني شامل مخصص لقراءة وتلاوة وتدبر القرآن الكريم ببراعة وسلاسة." />
-    <link rel="canonical" href="https://qurany.xyz/" />
-    <link rel="manifest" href="/manifest.json" />
-    <link rel="icon" type="image/png" href="/icon.png" />
-  </head>
-  <body>
-    <div id="root">
-      <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#0c0a09;color:#f59e0b;font-family:sans-serif;font-size:1.25rem;">
-        جاري فتح المصحف الشريف...
-      </div>
-    </div>
-  </body>
-</html>`;
+  // Do not return fake 200 HTML without compiled React scripts.
+  // A missing dist/index.html is a deployment error that must be visible.
+  throw new Error(`Compiled dist/index.html not found in: ${candidatePaths.join(", ")}`);
 }
 
 function mountProductionHandlers() {
@@ -1111,7 +1092,7 @@ function mountProductionHandlers() {
       return res.status(200).send(html);
     } catch (err: any) {
       console.error("Error serving and compiling dynamic SEO tags:", err?.message || err);
-      return res.status(200).send(getBaseIndexHtml(distPath));
+      return res.status(500).type("text/plain").send("Server HTML template unavailable");
     }
   });
 }
